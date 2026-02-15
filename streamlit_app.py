@@ -18,31 +18,31 @@ from golf_simulator import (
 
 
 st.set_page_config(page_title="Golf Ball Simulator", layout="wide")
-st.title("Golf Topu Simulasyonu - Basit Anlatim")
+st.title("Golf Ball Simulator - Simple Overview")
 st.caption(
-    "Amac: hangi dimple ayari daha iyi performans veriyor, bunu kolayca gormek. "
-    "Senaryo secimi: Ruzgar Tuneli veya Insan Vurusu."
+    "Goal: quickly see which dimple setup performs better. "
+    "Scenario selection: Wind Tunnel or Human Shot."
 )
 
 
 MODE_LABELS = {
-    "paper_depth_only": "Derinlik etkisi testi (tek degisken)",
-    "paper_occupancy_only": "Kaplama orani etkisi testi (tek degisken)",
-    "paper_volume_only": "VDR egilim testi (literatur seti)",
-    "paper_literature_grid": "Tum literatur tasarimlari (15 adet)",
+    "paper_depth_only": "Depth effect test (single variable)",
+    "paper_occupancy_only": "Coverage ratio effect test (single variable)",
+    "paper_volume_only": "VDR trend test (literature set)",
+    "paper_literature_grid": "All literature designs (15 total)",
 }
 
 MODE_LONG_INFO = {
-    "paper_depth_only": "Ne degisiyor: sadece dimple derinligi. Ne sabit: ayni dimple ailesi (O=81.2%, ND=476).",
-    "paper_occupancy_only": "Ne degisiyor: sadece kaplama ailesi (occupancy gruplari). Ne sabit: derinlik D/d=4.55e-3.",
-    "paper_volume_only": "Ne degisiyor: VDR trendini gormek icin 15 literatur tasarimi birlikte incelenir.",
-    "paper_literature_grid": "Ne degisiyor: makaledeki 15 tasarimin tamami. Yapay kombinasyon yoktur.",
+    "paper_depth_only": "What changes: only dimple depth. What stays fixed: same dimple family (O=81.2%, ND=476).",
+    "paper_occupancy_only": "What changes: only coverage family (occupancy groups). What stays fixed: depth D/d=4.55e-3.",
+    "paper_volume_only": "What changes: all 15 literature designs are evaluated together to observe the VDR trend.",
+    "paper_literature_grid": "What changes: all 15 designs from the paper. No synthetic combinations are used.",
 }
 
 CONTEXTS = {
     "wind_tunnel": {
-        "label": "Ruzgar Tuneli Modu",
-        "description": "Wind tunnel kosullari: hiz 20-140 km/h, no-spin odakli.",
+        "label": "Wind Tunnel Mode",
+        "description": "Wind tunnel conditions: speed 20-140 km/h, focused on no-spin.",
         "speed_unit": "km/h",
         "speed_min_mps": 20.0 / 3.6,
         "speed_max_mps": 140.0 / 3.6,
@@ -52,8 +52,8 @@ CONTEXTS = {
         "spin_default": 0,
     },
     "human_flight": {
-        "label": "Insan Vurusu Modu (PGA referans)",
-        "description": "Ucus kosullari: PGA ortalama launch degerleri etrafinda hiz/spin.",
+        "label": "Human Shot Mode (PGA reference)",
+        "description": "Flight conditions: speed/spin around PGA average launch values.",
         "speed_unit": "m/s",
         "speed_min_mps": 45.0,
         "speed_max_mps": 85.0,
@@ -65,104 +65,104 @@ CONTEXTS = {
 }
 
 PRESETS = {
-    "wind_onerilen": {
-        "label": "Ruzgar Tuneli / Onerilen (100 km/h, no-spin)",
+    "wind_recommended": {
+        "label": "Wind Tunnel / Recommended (100 km/h, no-spin)",
         "context": "wind_tunnel",
         "mode": "paper_depth_only",
         "speed_mps": 100.0 / 3.6,
         "launch_angle_deg": 11.2,
         "spin_rpm": 0,
         "top_n": 8,
-        "view_mode": "Basit",
+        "view_mode": "Simple",
     },
-    "wind_min_hiz": {
-        "label": "Ruzgar Tuneli / Minimum hiz (20 km/h)",
+    "wind_min_speed": {
+        "label": "Wind Tunnel / Minimum speed (20 km/h)",
         "context": "wind_tunnel",
         "mode": "paper_depth_only",
         "speed_mps": 20.0 / 3.6,
         "launch_angle_deg": 11.2,
         "spin_rpm": 0,
         "top_n": 8,
-        "view_mode": "Basit",
+        "view_mode": "Simple",
     },
-    "wind_maks_hiz": {
-        "label": "Ruzgar Tuneli / Maksimum hiz (140 km/h)",
+    "wind_max_speed": {
+        "label": "Wind Tunnel / Maximum speed (140 km/h)",
         "context": "wind_tunnel",
         "mode": "paper_depth_only",
         "speed_mps": 140.0 / 3.6,
         "launch_angle_deg": 11.2,
         "spin_rpm": 0,
         "top_n": 8,
-        "view_mode": "Basit",
+        "view_mode": "Simple",
     },
     "wind_occupancy": {
-        "label": "Ruzgar Tuneli / Occupancy karsilastirma",
+        "label": "Wind Tunnel / Occupancy comparison",
         "context": "wind_tunnel",
         "mode": "paper_occupancy_only",
         "speed_mps": 100.0 / 3.6,
         "launch_angle_deg": 11.2,
         "spin_rpm": 0,
         "top_n": 8,
-        "view_mode": "Basit",
+        "view_mode": "Simple",
     },
     "wind_vdr": {
-        "label": "Ruzgar Tuneli / VDR egilimi",
+        "label": "Wind Tunnel / VDR trend",
         "context": "wind_tunnel",
         "mode": "paper_volume_only",
         "speed_mps": 100.0 / 3.6,
         "launch_angle_deg": 11.2,
         "spin_rpm": 0,
         "top_n": 8,
-        "view_mode": "Basit",
+        "view_mode": "Simple",
     },
-    "wind_tam_grid": {
-        "label": "Ruzgar Tuneli / Tum literatur tasarimlari",
+    "wind_full_grid": {
+        "label": "Wind Tunnel / All literature designs",
         "context": "wind_tunnel",
         "mode": "paper_literature_grid",
         "speed_mps": 100.0 / 3.6,
         "launch_angle_deg": 11.2,
         "spin_rpm": 0,
         "top_n": 10,
-        "view_mode": "Teknik",
+        "view_mode": "Technical",
     },
-    "human_pga_ort": {
-        "label": "Insan Vurusu / PGA ortalama (74 m/s, 2685 rpm)",
+    "human_pga_avg": {
+        "label": "Human Shot / PGA average (74 m/s, 2685 rpm)",
         "context": "human_flight",
         "mode": "paper_literature_grid",
         "speed_mps": 74.0,
         "launch_angle_deg": 11.2,
         "spin_rpm": 2685,
         "top_n": 10,
-        "view_mode": "Teknik",
+        "view_mode": "Technical",
     },
-    "human_dusuk_spin": {
-        "label": "Insan Vurusu / Dusuk spin (74 m/s, 2200 rpm)",
+    "human_low_spin": {
+        "label": "Human Shot / Low spin (74 m/s, 2200 rpm)",
         "context": "human_flight",
         "mode": "paper_literature_grid",
         "speed_mps": 74.0,
         "launch_angle_deg": 11.2,
         "spin_rpm": 2200,
         "top_n": 10,
-        "view_mode": "Teknik",
+        "view_mode": "Technical",
     },
-    "human_yuksek_spin": {
-        "label": "Insan Vurusu / Yuksek spin (74 m/s, 3200 rpm)",
+    "human_high_spin": {
+        "label": "Human Shot / High spin (74 m/s, 3200 rpm)",
         "context": "human_flight",
         "mode": "paper_literature_grid",
         "speed_mps": 74.0,
         "launch_angle_deg": 11.2,
         "spin_rpm": 3200,
         "top_n": 10,
-        "view_mode": "Teknik",
+        "view_mode": "Technical",
     },
 }
 
 
 def ensure_session_defaults() -> None:
-    p = PRESETS["wind_onerilen"]
+    p = PRESETS["wind_recommended"]
     st.session_state.setdefault("context", p["context"])
-    st.session_state.setdefault("input_mode", "Hazır Ayar")
-    st.session_state.setdefault("preset_key", "wind_onerilen")
+    st.session_state.setdefault("input_mode", "Preset")
+    st.session_state.setdefault("preset_key", "wind_recommended")
     st.session_state.setdefault("applied_preset_key", "")
     st.session_state.setdefault("mode", p["mode"])
     st.session_state.setdefault("speed_mps", p["speed_mps"])
@@ -175,7 +175,7 @@ def ensure_session_defaults() -> None:
 
 
 def to_percent(value: float) -> str:
-    return f"%{value * 100:.1f}"
+    return f"{value * 100:.1f}%"
 
 
 def result_comment(row: pd.Series) -> str:
@@ -188,61 +188,61 @@ def result_comment(row: pd.Series) -> str:
     distance = float(row["distance_m"])
 
     if depth_ratio <= 4.55e-3:
-        depth_text = "dimplelar daha sığ kaldığı için top havayı daha temiz yarıyor"
+        depth_text = "the dimples stay shallow, so the ball cuts through air more cleanly"
     elif depth_ratio <= 6.82e-3:
-        depth_text = "dimple derinliği dengeli kaldığı için top ne çok agresif ne de çok pasif davranıyor"
+        depth_text = "the dimple depth is balanced, so ball behavior is neither too aggressive nor too passive"
     else:
-        depth_text = "dimplelar derin olduğu için topun hava ile etkileşimi daha güçlü oluyor"
+        depth_text = "the dimples are deep, so the ball interacts with airflow more strongly"
 
     if occupancy >= 0.80:
-        occ_text = "yüzeyin dimple ile kaplı kısmı yüksek olduğu için uçuş daha stabil ilerliyor"
+        occ_text = "a larger dimple-covered surface improves flight stability"
     elif occupancy >= 0.63:
-        occ_text = "kaplama oranı orta seviyede olduğu için performans dengeli kalıyor"
+        occ_text = "a medium coverage ratio keeps performance balanced"
     else:
-        occ_text = "kaplama oranı düşük olduğu için top bazı durumlarda daha erken hız kaybedebiliyor"
+        occ_text = "a low coverage ratio may cause earlier speed loss in some conditions"
 
     if lod >= 0.50:
-        lod_text = "kaldırma/sürükleme dengesi güçlü olduğu için mesafeyi iyi koruyor"
+        lod_text = "a strong lift/drag balance helps preserve distance"
     elif lod >= 0.42:
-        lod_text = "kaldırma/sürükleme dengesi kabul edilebilir olduğu için mesafe tatmin edici çıkıyor"
+        lod_text = "an acceptable lift/drag balance delivers satisfactory distance"
     else:
-        lod_text = "kaldırma/sürükleme dengesi sınırlı kaldığı için mesafe avantajı azalıyor"
+        lod_text = "a limited lift/drag balance reduces distance advantage"
 
     return (
-        f"Bu tasarımda {depth_text}; ayrıca {occ_text}. "
-        f"Sonuçta {lod_text} ve tahmini mesafe yaklaşık {distance:.1f} m seviyesine geliyor."
+        f"In this design, {depth_text}; additionally, {occ_text}. "
+        f"As a result, {lod_text}, and the estimated carry distance is around {distance:.1f} m."
     )
 
 
 def faq_data() -> list[tuple[str, str]]:
     return [
         (
-            "Bu uygulama ne yapiyor?",
-            "Makalelerdeki parametre araliklarinda birden fazla golf topu tasarimini dener ve secilen siralama olcutune gore en iyi sonucu uste getirir.",
+            "What does this app do?",
+            "It evaluates multiple golf ball designs within literature-based parameter ranges and ranks the best result by the selected criterion.",
         ),
         (
-            "Testi nasil yapiyor?",
-            "Her tasarim icin simulasyon calistirir. Ruzgar tüneli tipinde (spin=0) ana degerlendirme Cd uzerinden yapilir. Spinli durumda ucus denklemi de kullanilir.",
+            "How is the test performed?",
+            "It runs a simulation for each design. In wind-tunnel style testing (spin=0), the main evaluation is based on Cd. In spin cases, flight equations are also used.",
         ),
         (
-            "Kullanilan formuller nereden geliyor?",
-            "Temel denklemler literaturdeki standart aerodinamik denklemlerden gelir: Re, Sp, Fd, Fl, Cd, Cl. Parametre trendleri de paylastigin makalelerdeki bulgulara gore kurulmustur.",
+            "Where do the formulas come from?",
+            "Core equations come from standard aerodynamic formulations in the literature: Re, Sp, Fd, Fl, Cd, Cl. Parameter trends are based on findings in the referenced papers.",
         ),
         (
-            "Hiz araligi neden boyle?",
-            "Senaryoya gore degisir: Ruzgar Tuneli modunda 20-140 km/h, Insan Vurusu modunda 45-85 m/s araligi kullanilir.",
+            "Why is the speed range set this way?",
+            "It depends on the scenario: 20-140 km/h in Wind Tunnel mode, and 45-85 m/s in Human Shot mode.",
         ),
         (
-            "Neden 1. siradaki tasarim en iyi?",
-            "Cunku secilen kosulda tum adaylar ayni sartlarda karsilastirilir ve secilen olcute gore en iyi olan 1. siraya yazilir. (No-spin testte Cd, spinli testte bileşik skor)",
+            "Why is the rank-1 design the best?",
+            "Because all candidates are compared under the same selected condition, and the best one by the chosen metric is placed at rank 1. (Cd in no-spin tests, composite score in spin tests)",
         ),
         (
-            "Bu sonuc kesin nihai mi?",
-            "Bu model hizli tarama ve aday secimi icindir. Nihai onay icin secilen adaylarin CFD veya deney ile dogrulanmasi gerekir.",
+            "Is this result final?",
+            "This model is for rapid screening and candidate selection. Final confirmation requires CFD or experimental validation.",
         ),
         (
-            "Tek degiskenli test ne demek?",
-            "Sadece tek parametreyi degistirip digerlerini sabit tutmak. Boylece hangi etkinin nereden geldigi daha net gorulur.",
+            "What does a single-variable test mean?",
+            "It means changing only one parameter while keeping others fixed, making each effect easier to isolate.",
         ),
     ]
 
@@ -314,8 +314,8 @@ def run_cached_robust_search(speed_mps: float, launch_angle_deg: float, spin_rpm
 
 def ranking_explainer(spin_rpm: int) -> str:
     if spin_rpm == 0:
-        return "Siralama olcutu: **Ortalama Cd (kucuk daha iyi)**. (Ruzgar tuneli tipi, no-spin)"
-    return "Siralama olcutu: **Mesafe + L/D + Cd bileşik skoru**. (Ucuş tipi, spinli)"
+        return "Ranking criterion: **Average Cd (lower is better)**. (Wind-tunnel style, no-spin)"
+    return "Ranking criterion: **Composite score of Distance + L/D + Cd**. (Flight style, with spin)"
 
 
 def format_unique(values: list[float], fmt: str) -> str:
@@ -330,19 +330,19 @@ def mode_test_summary(df: pd.DataFrame) -> tuple[list[str], list[str], dict[str,
     dd_vals = sorted(df["dimple_diameter_mm"].unique().tolist())
 
     specs = {
-        "Derinlik orani (k/d)": format_unique(depth_vals, ".5f"),
-        "Yuzey kaplama orani (%)": format_unique([v * 100 for v in occ_vals], ".1f"),
-        "Dimple hacim orani (VDR)": format_unique(vdr_vals, ".4f"),
-        "Toplam dimple sayisi": ", ".join(str(int(v)) for v in nd_vals),
-        "Dimple capi (mm)": format_unique(dd_vals, ".2f"),
+        "Depth ratio (k/d)": format_unique(depth_vals, ".5f"),
+        "Surface coverage ratio (%)": format_unique([v * 100 for v in occ_vals], ".1f"),
+        "Dimple volume ratio (VDR)": format_unique(vdr_vals, ".4f"),
+        "Total dimple count": ", ".join(str(int(v)) for v in nd_vals),
+        "Dimple diameter (mm)": format_unique(dd_vals, ".2f"),
     }
 
     changing = [k for k, vals in [
-        ("Derinlik orani (k/d)", depth_vals),
-        ("Yuzey kaplama orani (%)", occ_vals),
-        ("Dimple hacim orani (VDR)", vdr_vals),
-        ("Toplam dimple sayisi", nd_vals),
-        ("Dimple capi (mm)", dd_vals),
+        ("Depth ratio (k/d)", depth_vals),
+        ("Surface coverage ratio (%)", occ_vals),
+        ("Dimple volume ratio (VDR)", vdr_vals),
+        ("Total dimple count", nd_vals),
+        ("Dimple diameter (mm)", dd_vals),
     ] if len(vals) > 1]
     fixed = [k for k in specs.keys() if k not in changing]
     return changing, fixed, specs
@@ -449,12 +449,12 @@ def build_design_legend(designs: list[DimpleDesign]) -> pd.DataFrame:
     for idx, d in enumerate(designs, start=1):
         rows.append(
             {
-                "Etiket": f"S{idx}",
+                "Label": f"S{idx}",
                 "k/d": d.depth_ratio,
-                "Yuzey kaplama (%)": d.occupancy * 100.0,
+                "Surface coverage (%)": d.occupancy * 100.0,
                 "VDR": d.volume_ratio,
-                "Dimple sayisi": d.dimple_count,
-                "Dimple capi (mm)": d.dimple_diameter_mm,
+                "Dimple count": d.dimple_count,
+                "Dimple diameter (mm)": d.dimple_diameter_mm,
             }
         )
     return pd.DataFrame(rows)
@@ -463,11 +463,11 @@ def build_design_legend(designs: list[DimpleDesign]) -> pd.DataFrame:
 ensure_session_defaults()
 
 with st.sidebar:
-    st.header("1) Giris ayarlari")
+    st.header("1) Input settings")
     if "context_widget" not in st.session_state:
         st.session_state["context_widget"] = st.session_state["context"]
     context = st.selectbox(
-        "Test senaryosu",
+        "Test scenario",
         options=list(CONTEXTS.keys()),
         format_func=lambda key: CONTEXTS[key]["label"],
         index=list(CONTEXTS.keys()).index(st.session_state["context_widget"]),
@@ -477,26 +477,26 @@ with st.sidebar:
     context_cfg = CONTEXTS[context]
 
     input_mode = st.radio(
-        "Ayar yontemi",
-        options=["Hazır Ayar", "Özel Ayar"],
+        "Configuration mode",
+        options=["Preset", "Custom"],
         horizontal=True,
-        index=0 if st.session_state["input_mode"] == "Hazır Ayar" else 1,
+        index=0 if st.session_state["input_mode"] == "Preset" else 1,
         key="input_mode",
     )
 
-    if input_mode == "Hazır Ayar":
+    if input_mode == "Preset":
         preset_options = [k for k, v in PRESETS.items() if v["context"] == context]
         if st.session_state.get("preset_key") not in preset_options:
             st.session_state["preset_key"] = preset_options[0]
         preset_key = st.selectbox(
-            "Hazir ayar sec",
+            "Select preset",
             options=preset_options,
             format_func=lambda key: PRESETS[key]["label"],
             index=preset_options.index(st.session_state["preset_key"]),
             key="preset_key",
-            help="Makalelerdeki test mantigina gore hazir ayarlar.",
+            help="Preset configurations based on test logic from literature.",
         )
-        st.caption("Hazır ayar seçtiğiniz anda otomatik uygulanır.")
+        st.caption("The selected preset is applied automatically.")
         if st.session_state.get("applied_preset_key") != preset_key:
             p = PRESETS[preset_key]
             st.session_state["mode"] = p["mode"]
@@ -507,24 +507,24 @@ with st.sidebar:
             st.session_state["view_mode"] = p["view_mode"]
             st.session_state["applied_preset_key"] = preset_key
             st.session_state["auto_recalc"] = True
-            st.session_state["recalc_message"] = f"Hazir ayar otomatik uygulandi: {PRESETS[preset_key]['label']}"
+            st.session_state["recalc_message"] = f"Preset applied automatically: {PRESETS[preset_key]['label']}"
             st.rerun()
     else:
-        st.caption("Özel ayarda kaydırıcıları değiştirince sonuçlar otomatik güncellenir.")
+        st.caption("In custom mode, results update automatically when sliders change.")
 
     mode = st.selectbox(
-        "Test tipi (acik secim)",
+        "Test type (explicit selection)",
         options=list(MODE_LABELS.keys()),
         format_func=lambda key: MODE_LABELS[key],
         index=list(MODE_LABELS.keys()).index(st.session_state["mode"]),
-        help="Makaleye uygun test turu. Varsayilan tek degisken.",
+        help="Literature-aligned test type. Default is single-variable.",
         key="mode",
     )
     current_speed_mps = float(st.session_state["speed_mps"])
     current_speed_mps = max(context_cfg["speed_min_mps"], min(context_cfg["speed_max_mps"], current_speed_mps))
     if context_cfg["speed_unit"] == "km/h":
         speed_input = st.slider(
-            "Ruzgar tuneli hizi (km/h)",
+            "Wind tunnel speed (km/h)",
             min_value=int(round(context_cfg["speed_min_mps"] * 3.6)),
             max_value=int(round(context_cfg["speed_max_mps"] * 3.6)),
             value=int(round(current_speed_mps * 3.6)),
@@ -533,7 +533,7 @@ with st.sidebar:
         speed_mps = speed_input / 3.6
     else:
         speed_input = st.slider(
-            "Top cikis hizi (m/s)",
+            "Ball launch speed (m/s)",
             min_value=float(context_cfg["speed_min_mps"]),
             max_value=float(context_cfg["speed_max_mps"]),
             value=float(round(current_speed_mps, 1)),
@@ -543,7 +543,7 @@ with st.sidebar:
     st.session_state["speed_mps"] = speed_mps
 
     launch_angle_deg = st.slider(
-        "Atis acisi (derece)",
+        "Launch angle (degrees)",
         min_value=6.0,
         max_value=18.0,
         value=float(st.session_state["launch_angle_deg"]),
@@ -559,7 +559,7 @@ with st.sidebar:
         key="spin_rpm",
     )
     top_n = st.slider(
-        "Listede kac sonuc goreyim?",
+        "How many results should be listed?",
         min_value=3,
         max_value=25,
         value=int(st.session_state["top_n"]),
@@ -567,10 +567,10 @@ with st.sidebar:
         key="top_n",
     )
     view_mode = st.radio(
-        "Gorunum",
-        options=["Basit", "Teknik"],
+        "View",
+        options=["Simple", "Technical"],
         horizontal=True,
-        index=0 if st.session_state["view_mode"] == "Basit" else 1,
+        index=0 if st.session_state["view_mode"] == "Simple" else 1,
         key="view_mode",
     )
     st.caption(context_cfg["description"])
@@ -578,34 +578,34 @@ with st.sidebar:
 speed_mps = float(st.session_state["speed_mps"])
 
 st.info(
-    f"Senaryo: **{CONTEXTS[context]['label']}**  |  "
-    f"Test tipi: **{MODE_LABELS[mode]}**  |  "
-    f"Hiz: **{speed_mps:.1f} m/s ({speed_mps*3.6:.0f} km/h)**  |  "
+    f"Scenario: **{CONTEXTS[context]['label']}**  |  "
+    f"Test type: **{MODE_LABELS[mode]}**  |  "
+    f"Speed: **{speed_mps:.1f} m/s ({speed_mps*3.6:.0f} km/h)**  |  "
     f"Spin: **{int(spin_rpm)} rpm**"
 )
 
-with st.expander("Yardim / Metodoloji / SSS", expanded=False):
+with st.expander("Help / Methodology / FAQ", expanded=False):
     st.markdown(
-        "**Hizli kullanim:** Hazir ayar sec -> Sistem otomatik uygular -> Sonuclari incele.\n\n"
-        "**Secim onerisi:**\n"
-        "- Ruzgar Tuneli Modu: no-spin aerodinamik karsilastirma (Cd odakli)\n"
-        "- Insan Vurusu Modu: spinli ucus karsilastirmasi (mesafe ve L/D etkili)\n"
-        "- Tek degisken analizi: `Derinlik etkisi` veya `Kaplama etkisi`\n\n"
+        "**Quick usage:** Select a preset -> The system applies it automatically -> Review the results.\n\n"
+        "**Selection tips:**\n"
+        "- Wind Tunnel Mode: no-spin aerodynamic comparison (Cd-focused)\n"
+        "- Human Shot Mode: spin flight comparison (distance and L/D-driven)\n"
+        "- Single-variable analysis: `Depth effect` or `Coverage effect`\n\n"
         "**Model:**\n"
         "- `Re = rho*U*d/mu`, `Sp = pi*d*N/U`\n"
         "- `Fd = 0.5*rho*U^2*A*Cd`, `Fl = 0.5*rho*U^2*A*Cl`\n"
-        "- `spin=0` modunda siralama `Cd` ile, spinli modda bileşik skor ile yapilir."
+        "- In `spin=0` mode, ranking uses `Cd`; in spin mode, it uses a composite score."
     )
     st.markdown("---")
     for q, a in faq_data():
-        st.markdown(f"**Soru:** {q}")
-        st.write(f"**Cevap:** {a}")
+        st.markdown(f"**Question:** {q}")
+        st.write(f"**Answer:** {a}")
         st.markdown("---")
 
 
 if st.session_state.get("auto_recalc", False):
-    msg = st.session_state.get("recalc_message", "Ayarlar degisti")
-    with st.spinner(f"{msg}. Sonuclar hesaplanıyor..."):
+    msg = st.session_state.get("recalc_message", "Settings changed")
+    with st.spinner(f"{msg}. Calculating results..."):
         time.sleep(1.2)
         df = run_cached_search(
             speed_mps=speed_mps,
@@ -613,7 +613,7 @@ if st.session_state.get("auto_recalc", False):
             spin_rpm=spin_rpm,
             mode=mode,
         )
-    st.success("Hesaplama tamamlandi. Sonuclar guncellendi.")
+    st.success("Calculation completed. Results are updated.")
     st.session_state["auto_recalc"] = False
     st.session_state["recalc_message"] = ""
 else:
@@ -628,22 +628,22 @@ best = top_df.iloc[0]
 is_no_spin = int(spin_rpm) == 0
 changing_params, fixed_params, tested_specs = mode_test_summary(df)
 
-st.subheader("Bu testte sistem ne yapiyor?")
+st.subheader("What does the system do in this test?")
 st.markdown(
-    "1. Seçtiğin test tipine göre makaleden gelen aday tasarımlar hazırlanır.\n"
-    "2. Her aday için `Cd/Cl` hesaplanır ve uçuş simülasyonu çalıştırılır.\n"
-    "3. Sonuçlar karşılaştırılır.\n"
-    "4. En iyi satır, seçilen sıralama ölçütüne göre 1. sıraya yazılır."
+    "1. Candidate designs are prepared according to the selected test type based on literature.\n"
+    "2. `Cd/Cl` is computed for each candidate and a flight simulation is run.\n"
+    "3. Results are compared.\n"
+    "4. The best row is placed at rank 1 according to the selected ranking criterion."
 )
 
 c1, c2 = st.columns(2)
-c1.metric("Denenen tasarim sayisi", f"{len(df)}")
-c2.metric("Degisen parametre sayisi", f"{len(changing_params)}")
+c1.metric("Tested design count", f"{len(df)}")
+c2.metric("Number of varying parameters", f"{len(changing_params)}")
 
-st.markdown("**Bu testte degisen parametreler:** " + (", ".join(changing_params) if changing_params else "Yok"))
-st.markdown("**Bu testte sabit kalan parametreler:** " + (", ".join(fixed_params) if fixed_params else "Yok"))
+st.markdown("**Parameters that vary in this test:** " + (", ".join(changing_params) if changing_params else "None"))
+st.markdown("**Parameters fixed in this test:** " + (", ".join(fixed_params) if fixed_params else "None"))
 
-with st.expander("Bu testte denenen tum degerler"):
+with st.expander("All values tested in this run"):
     for k, v in tested_specs.items():
         st.markdown(f"- **{k}:** {v}")
 
@@ -651,24 +651,24 @@ mean_distance = float(df["distance_m"].mean())
 gain_vs_mean = float(best["distance_m"] - mean_distance)
 
 col1, col2, col3 = st.columns(3)
-col1.metric("En iyi mesafe", f"{best['distance_m']:.2f} m")
-col2.metric("Ortalama sonuca gore fark", f"{gain_vs_mean:+.2f} m")
-col3.metric("Denenen toplam tasarim", f"{len(df)}")
+col1.metric("Best distance", f"{best['distance_m']:.2f} m")
+col2.metric("Difference vs mean result", f"{gain_vs_mean:+.2f} m")
+col3.metric("Total tested designs", f"{len(df)}")
 st.caption(ranking_explainer(int(spin_rpm)))
 
 st.success(
-    "Kisa ozet: Sistem tum adaylari ayni kosulda dener ve secilen siralama olcutune gore en iyi sonucu en uste getirir."
+    "Quick summary: The system tests all candidates under the same condition and places the best one at the top based on the chosen ranking criterion."
 )
 
-st.subheader("2) Sonuclar (en iyiden baslayarak)")
-st.caption("Tabloda üretim için gerekli temel tasarım bilgileri bulunur.")
+st.subheader("2) Results (starting from best)")
+st.caption("The table includes core design information required for production decisions.")
 
 simple_df = top_df.copy()
 simple_df["occupancy_pct"] = simple_df["occupancy"] * 100.0
 simple_df["dimple_depth_mm"] = simple_df["depth_ratio_k_over_d"] * 42.67
-simple_df["neden_iyi"] = simple_df.apply(result_comment, axis=1)
+simple_df["why_good"] = simple_df.apply(result_comment, axis=1)
 
-if view_mode == "Basit":
+if view_mode == "Simple":
     show_df = simple_df[
         [
             "rank",
@@ -681,34 +681,34 @@ if view_mode == "Basit":
             "volume_ratio",
             "dimple_count",
             "dimple_diameter_mm",
-            "neden_iyi",
+            "why_good",
         ]
     ].rename(
         columns={
-            "rank": "Sira",
-            "distance_m": "Tahmini tasima mesafesi (m)",
-            "flight_time_s": "Ucusta kalma suresi (s)",
-            "max_height_m": "Maksimum yukseklik (m)",
-            "dimple_depth_mm": "Dimple derinligi (mm)",
-            "depth_ratio_k_over_d": "Derinlik orani (k/d)",
-            "occupancy_pct": "Yuzey kaplama orani (%)",
-            "volume_ratio": "Dimple hacim orani (VDR)",
-            "dimple_count": "Toplam dimple sayisi (adet)",
-            "dimple_diameter_mm": "Dimple capi (mm)",
-            "neden_iyi": "Neden iyi?",
+            "rank": "Rank",
+            "distance_m": "Estimated carry distance (m)",
+            "flight_time_s": "Time in flight (s)",
+            "max_height_m": "Maximum height (m)",
+            "dimple_depth_mm": "Dimple depth (mm)",
+            "depth_ratio_k_over_d": "Depth ratio (k/d)",
+            "occupancy_pct": "Surface coverage ratio (%)",
+            "volume_ratio": "Dimple volume ratio (VDR)",
+            "dimple_count": "Total dimple count",
+            "dimple_diameter_mm": "Dimple diameter (mm)",
+            "why_good": "Why is it good?",
         }
     )
     st.dataframe(
         show_df.style.format(
             {
-                "Tahmini tasima mesafesi (m)": "{:.3f}",
-                "Ucusta kalma suresi (s)": "{:.2f}",
-                "Maksimum yukseklik (m)": "{:.2f}",
-                "Dimple derinligi (mm)": "{:.3f}",
-                "Derinlik orani (k/d)": "{:.5f}",
-                "Yuzey kaplama orani (%)": "{:.1f}",
-                "Dimple hacim orani (VDR)": "{:.4f}",
-                "Dimple capi (mm)": "{:.2f}",
+                "Estimated carry distance (m)": "{:.3f}",
+                "Time in flight (s)": "{:.2f}",
+                "Maximum height (m)": "{:.2f}",
+                "Dimple depth (mm)": "{:.3f}",
+                "Depth ratio (k/d)": "{:.5f}",
+                "Surface coverage ratio (%)": "{:.1f}",
+                "Dimple volume ratio (VDR)": "{:.4f}",
+                "Dimple diameter (mm)": "{:.2f}",
             }
         ),
         width="stretch",
@@ -717,45 +717,45 @@ if view_mode == "Basit":
 else:
     tech_df = top_df.rename(
         columns={
-            "rank": "Sira",
-            "score": "Skor",
-            "distance_m": "Tahmini tasima mesafesi (m)",
-            "flight_time_s": "Ucusta kalma suresi (s)",
-            "max_height_m": "Maksimum yukseklik (m)",
-            "avg_cd": "Ortalama Cd",
-            "avg_cl": "Ortalama Cl",
-            "avg_l_over_d": "Ortalama L/D",
-            "depth_ratio_k_over_d": "Derinlik orani (k/d)",
-            "occupancy": "Yuzey kaplama orani (0-1)",
-            "volume_ratio": "Dimple hacim orani (VDR)",
-            "dimple_count": "Toplam dimple sayisi (adet)",
-            "dimple_diameter_mm": "Dimple capi (mm)",
+            "rank": "Rank",
+            "score": "Score",
+            "distance_m": "Estimated carry distance (m)",
+            "flight_time_s": "Time in flight (s)",
+            "max_height_m": "Maximum height (m)",
+            "avg_cd": "Average Cd",
+            "avg_cl": "Average Cl",
+            "avg_l_over_d": "Average L/D",
+            "depth_ratio_k_over_d": "Depth ratio (k/d)",
+            "occupancy": "Surface coverage ratio (0-1)",
+            "volume_ratio": "Dimple volume ratio (VDR)",
+            "dimple_count": "Total dimple count",
+            "dimple_diameter_mm": "Dimple diameter (mm)",
         }
     ).copy()
-    tech_df["Dimple derinligi (mm)"] = tech_df["Derinlik orani (k/d)"] * 42.67
-    tech_df["Yuzey kaplama orani (%)"] = tech_df["Yuzey kaplama orani (0-1)"] * 100.0
+    tech_df["Dimple depth (mm)"] = tech_df["Depth ratio (k/d)"] * 42.67
+    tech_df["Surface coverage ratio (%)"] = tech_df["Surface coverage ratio (0-1)"] * 100.0
     if is_no_spin:
         # In no-spin wind tunnel mode, ranking is based on Cd.
         # Hide synthetic score to avoid confusion from negative values.
-        tech_df = tech_df.drop(columns=["Skor"])
+        tech_df = tech_df.drop(columns=["Score"])
 
     tech_format = {
-        "Skor": "{:.2f}",
-        "Tahmini tasima mesafesi (m)": "{:.3f}",
-        "Ucusta kalma suresi (s)": "{:.2f}",
-        "Maksimum yukseklik (m)": "{:.2f}",
-        "Ortalama Cd": "{:.3f}",
-        "Ortalama Cl": "{:.3f}",
-        "Ortalama L/D": "{:.3f}",
-        "Derinlik orani (k/d)": "{:.5f}",
-        "Yuzey kaplama orani (0-1)": "{:.3f}",
-        "Yuzey kaplama orani (%)": "{:.1f}",
-        "Dimple hacim orani (VDR)": "{:.4f}",
-        "Dimple capi (mm)": "{:.2f}",
-        "Dimple derinligi (mm)": "{:.3f}",
+        "Score": "{:.2f}",
+        "Estimated carry distance (m)": "{:.3f}",
+        "Time in flight (s)": "{:.2f}",
+        "Maximum height (m)": "{:.2f}",
+        "Average Cd": "{:.3f}",
+        "Average Cl": "{:.3f}",
+        "Average L/D": "{:.3f}",
+        "Depth ratio (k/d)": "{:.5f}",
+        "Surface coverage ratio (0-1)": "{:.3f}",
+        "Surface coverage ratio (%)": "{:.1f}",
+        "Dimple volume ratio (VDR)": "{:.4f}",
+        "Dimple diameter (mm)": "{:.2f}",
+        "Dimple depth (mm)": "{:.3f}",
     }
-    if is_no_spin and "Skor" in tech_format:
-        tech_format.pop("Skor")
+    if is_no_spin and "Score" in tech_format:
+        tech_format.pop("Score")
 
     st.dataframe(
         tech_df.style.format(tech_format),
@@ -764,11 +764,11 @@ else:
     )
 
 
-st.subheader("2B) Global senaryo scoreboard (robust)")
+st.subheader("2B) Global scenario scoreboard (robust)")
 if int(spin_rpm) == 0:
     st.info(
-        "Global robust scoreboard spinli uretim senaryosu icindir. "
-        "Bu nedenle spin=0 durumunda gosterilmez."
+        "The global robust scoreboard is intended for spin-enabled production scenarios. "
+        "Therefore, it is not shown when spin=0."
     )
 else:
     robust_df, scenario_count = run_cached_robust_search(
@@ -781,60 +781,60 @@ else:
     robust_best = robust_top_df.iloc[0]
 
     r1, r2, r3 = st.columns(3)
-    r1.metric("Global en iyi robust skor", f"{robust_best['robust_score']:.2f}")
-    r2.metric("Global ortalama tasima", f"{robust_best['mean_distance_m']:.2f} m")
-    r3.metric("Global minimum tasima", f"{robust_best['min_distance_m']:.2f} m")
+    r1.metric("Global best robust score", f"{robust_best['robust_score']:.2f}")
+    r2.metric("Global average carry", f"{robust_best['mean_distance_m']:.2f} m")
+    r3.metric("Global minimum carry", f"{robust_best['min_distance_m']:.2f} m")
 
     st.caption(
-        f"Bu tablo, secilen temel launch etrafinda {scenario_count} farkli hiz/aci/spin kombinasyonunun "
-        "birlesik sonucunu verir. Uretimde daha guvenli aday secimi icin kullanilir."
+        f"This table aggregates outcomes from {scenario_count} different speed/angle/spin combinations "
+        "around the selected baseline launch. It is used to choose safer candidates for production."
     )
 
     robust_show_df = robust_top_df.rename(
         columns={
-            "rank": "Sira",
-            "robust_score": "Robust skor",
-            "mean_score": "Ortalama skor",
-            "worst_score": "En kotu skor",
-            "score_std": "Skor sapmasi",
-            "mean_distance_m": "Ortalama tasima (m)",
-            "min_distance_m": "Minimum tasima (m)",
-            "nominal_distance_m": "Nominal tasima (m)",
+            "rank": "Rank",
+            "robust_score": "Robust score",
+            "mean_score": "Average score",
+            "worst_score": "Worst score",
+            "score_std": "Score std dev",
+            "mean_distance_m": "Average carry (m)",
+            "min_distance_m": "Minimum carry (m)",
+            "nominal_distance_m": "Nominal carry (m)",
             "nominal_avg_cd": "Nominal Cd",
             "nominal_avg_cl": "Nominal Cl",
             "nominal_avg_l_over_d": "Nominal L/D",
-            "depth_ratio_k_over_d": "Derinlik orani (k/d)",
-            "occupancy": "Yuzey kaplama orani (0-1)",
-            "volume_ratio": "Dimple hacim orani (VDR)",
-            "dimple_count": "Toplam dimple sayisi (adet)",
-            "dimple_diameter_mm": "Dimple capi (mm)",
+            "depth_ratio_k_over_d": "Depth ratio (k/d)",
+            "occupancy": "Surface coverage ratio (0-1)",
+            "volume_ratio": "Dimple volume ratio (VDR)",
+            "dimple_count": "Total dimple count",
+            "dimple_diameter_mm": "Dimple diameter (mm)",
         }
     )
 
     st.dataframe(
         robust_show_df.style.format(
             {
-                "Robust skor": "{:.2f}",
-                "Ortalama skor": "{:.2f}",
-                "En kotu skor": "{:.2f}",
-                "Skor sapmasi": "{:.2f}",
-                "Ortalama tasima (m)": "{:.2f}",
-                "Minimum tasima (m)": "{:.2f}",
-                "Nominal tasima (m)": "{:.2f}",
+                "Robust score": "{:.2f}",
+                "Average score": "{:.2f}",
+                "Worst score": "{:.2f}",
+                "Score std dev": "{:.2f}",
+                "Average carry (m)": "{:.2f}",
+                "Minimum carry (m)": "{:.2f}",
+                "Nominal carry (m)": "{:.2f}",
                 "Nominal Cd": "{:.3f}",
                 "Nominal Cl": "{:.3f}",
                 "Nominal L/D": "{:.3f}",
-                "Derinlik orani (k/d)": "{:.5f}",
-                "Yuzey kaplama orani (0-1)": "{:.3f}",
-                "Dimple hacim orani (VDR)": "{:.4f}",
-                "Dimple capi (mm)": "{:.2f}",
+                "Depth ratio (k/d)": "{:.5f}",
+                "Surface coverage ratio (0-1)": "{:.3f}",
+                "Dimple volume ratio (VDR)": "{:.4f}",
+                "Dimple diameter (mm)": "{:.2f}",
             }
         ),
         width="stretch",
         hide_index=True,
     )
 
-    st.markdown("#### Global robust tabloda yer alan tasarimlar icin Cd-Re karsilastirmasi")
+    st.markdown("#### Cd-Re comparison for designs in the global robust table")
     robust_compare_designs = [
         DimpleDesign(
             depth_ratio=float(row["depth_ratio_k_over_d"]),
@@ -847,7 +847,7 @@ else:
     ]
     robust_compare_labels = [f"R{i}" for i in range(1, len(robust_compare_designs) + 1)]
     robust_legend_df = build_design_legend(robust_compare_designs).copy()
-    robust_legend_df["Etiket"] = robust_compare_labels
+    robust_legend_df["Label"] = robust_compare_labels
 
     robust_cd_re_comp_df = build_cd_re_comparison(
         robust_compare_designs,
@@ -858,18 +858,18 @@ else:
     )
     robust_cd_re_long = (
         robust_cd_re_comp_df.reset_index()
-        .melt(id_vars="re", var_name="tasarim", value_name="cd")
+        .melt(id_vars="re", var_name="design", value_name="cd")
         .dropna()
     )
     robust_cd_re_chart = (
         alt.Chart(robust_cd_re_long)
         .mark_line(point=True, strokeWidth=2)
         .encode(
-            x=alt.X("re:Q", title="Reynolds sayisi (Re)", axis=alt.Axis(format=".2e")),
-            y=alt.Y("cd:Q", title="Surukleme katsayisi (Cd)"),
-            color=alt.Color("tasarim:N", title="Robust tasarim"),
+            x=alt.X("re:Q", title="Reynolds number (Re)", axis=alt.Axis(format=".2e")),
+            y=alt.Y("cd:Q", title="Drag coefficient (Cd)"),
+            color=alt.Color("design:N", title="Robust design"),
             tooltip=[
-                alt.Tooltip("tasarim:N", title="Tasarim"),
+                alt.Tooltip("design:N", title="Design"),
                 alt.Tooltip("re:Q", title="Re", format=".2e"),
                 alt.Tooltip("cd:Q", title="Cd", format=".4f"),
             ],
@@ -879,17 +879,17 @@ else:
     )
     st.altair_chart(robust_cd_re_chart, use_container_width=True)
     st.caption(
-        "R1, R2, ... etiketleri robust scoreboard sirasini temsil eder. "
-        "Egri ne kadar asagida ise ilgili hiz bandinda Cd o kadar dusuktur."
+        "R1, R2, ... labels represent the robust scoreboard ranking. "
+        "The lower the curve, the lower the Cd in that speed band."
     )
-    with st.expander("Robust Cd-Re grafik etiketleri (R1, R2, ...)"):
+    with st.expander("Robust Cd-Re chart labels (R1, R2, ...)"):
         st.dataframe(
             robust_legend_df.style.format(
                 {
                     "k/d": "{:.5f}",
-                    "Yuzey kaplama (%)": "{:.1f}",
+                    "Surface coverage (%)": "{:.1f}",
                     "VDR": "{:.4f}",
-                    "Dimple capi (mm)": "{:.2f}",
+                    "Dimple diameter (mm)": "{:.2f}",
                 }
             ),
             width="stretch",
@@ -897,7 +897,7 @@ else:
         )
 
 
-st.subheader("3) Bir tasarim sec ve ucusunu gor")
+st.subheader("3) Select a design and view its flight")
 compare_designs = [
     DimpleDesign(
         depth_ratio=float(row["depth_ratio_k_over_d"]),
@@ -916,24 +916,24 @@ selected_launch = LaunchCondition(
     spin_rpm=float(spin_rpm),
 )
 
-st.markdown("#### Sonuç tablosundaki tasarımlar için uçuş eğrisi karşılaştırması")
+st.markdown("#### Flight trajectory comparison for designs in the results table")
 flight_comp_df = build_flight_comparison(compare_designs, compare_labels, selected_launch)
 flight_long = (
     flight_comp_df.reset_index()
-    .melt(id_vars="distance_m", var_name="tasarim", value_name="height_m")
+    .melt(id_vars="distance_m", var_name="design", value_name="height_m")
     .dropna()
 )
 flight_chart = (
     alt.Chart(flight_long)
     .mark_line(point=True, strokeWidth=2)
     .encode(
-        x=alt.X("distance_m:Q", title="Mesafe (m)"),
-        y=alt.Y("height_m:Q", title="Yukseklik (m)"),
-        color=alt.Color("tasarim:N", title="Tasarim"),
+        x=alt.X("distance_m:Q", title="Distance (m)"),
+        y=alt.Y("height_m:Q", title="Height (m)"),
+        color=alt.Color("design:N", title="Design"),
         tooltip=[
-            alt.Tooltip("tasarim:N", title="Tasarim"),
-            alt.Tooltip("distance_m:Q", title="Mesafe (m)", format=".2f"),
-            alt.Tooltip("height_m:Q", title="Yukseklik (m)", format=".3f"),
+            alt.Tooltip("design:N", title="Design"),
+            alt.Tooltip("distance_m:Q", title="Distance (m)", format=".2f"),
+            alt.Tooltip("height_m:Q", title="Height (m)", format=".3f"),
         ],
     )
     .properties(height=340)
@@ -941,25 +941,25 @@ flight_chart = (
 )
 st.altair_chart(flight_chart, use_container_width=True)
 st.caption(
-    "Her çizgi bir tasarımı temsil eder. Daha uzun mesafe ve kontrol edilen yükseklik, "
-    "uçuş performansı açısından daha olumlu yorumlanır."
+    "Each line represents one design. Longer distance and controlled height "
+    "are generally interpreted as better flight performance."
 )
 
-with st.expander("Grafik etiketleri (S1, S2, ...)"):
+with st.expander("Chart labels (S1, S2, ...)"):
     st.dataframe(
         legend_df.style.format(
             {
                 "k/d": "{:.5f}",
-                "Yuzey kaplama (%)": "{:.1f}",
+                "Surface coverage (%)": "{:.1f}",
                 "VDR": "{:.4f}",
-                "Dimple capi (mm)": "{:.2f}",
+                "Dimple diameter (mm)": "{:.2f}",
             }
         ),
         width="stretch",
         hide_index=True,
     )
 
-selected_rank = st.selectbox("Detay icin sira sec", options=top_df["rank"].tolist(), index=0)
+selected_rank = st.selectbox("Select rank for details", options=top_df["rank"].tolist(), index=0)
 selected_row = df.loc[df["rank"] == selected_rank].iloc[0]
 
 selected_design = DimpleDesign(
@@ -971,7 +971,7 @@ selected_design = DimpleDesign(
 )
 selected_result, _ = simulate_flight_with_path(selected_launch, selected_design)
 
-st.markdown("#### Sonuç tablosundaki tasarımlar için Cd-Re karşılaştırması")
+st.markdown("#### Cd-Re comparison for designs in the results table")
 cd_re_comp_df = build_cd_re_comparison(
     compare_designs,
     compare_labels,
@@ -981,18 +981,18 @@ cd_re_comp_df = build_cd_re_comparison(
 )
 cd_re_long = (
     cd_re_comp_df.reset_index()
-    .melt(id_vars="re", var_name="tasarim", value_name="cd")
+    .melt(id_vars="re", var_name="design", value_name="cd")
     .dropna()
 )
 cd_re_chart = (
     alt.Chart(cd_re_long)
     .mark_line(point=True, strokeWidth=2)
     .encode(
-        x=alt.X("re:Q", title="Reynolds sayisi (Re)", axis=alt.Axis(format=".2e")),
-        y=alt.Y("cd:Q", title="Surukleme katsayisi (Cd)"),
-        color=alt.Color("tasarim:N", title="Tasarim"),
+        x=alt.X("re:Q", title="Reynolds number (Re)", axis=alt.Axis(format=".2e")),
+        y=alt.Y("cd:Q", title="Drag coefficient (Cd)"),
+        color=alt.Color("design:N", title="Design"),
         tooltip=[
-            alt.Tooltip("tasarim:N", title="Tasarim"),
+            alt.Tooltip("design:N", title="Design"),
             alt.Tooltip("re:Q", title="Re", format=".2e"),
             alt.Tooltip("cd:Q", title="Cd", format=".4f"),
         ],
@@ -1002,47 +1002,47 @@ cd_re_chart = (
 )
 st.altair_chart(cd_re_chart, use_container_width=True)
 st.caption(
-    "Grafik yorumu: Cd ne kadar düşükse hava direnci o kadar düşüktür. "
-    "Grafikte tablodaki her tasarım ayrı çizgi olarak gösterilir; böylece tasarımları doğrudan karşılaştırabilirsin."
+    "Chart interpretation: lower Cd means lower aerodynamic drag. "
+    "Each design in the table is shown as a separate line, allowing direct comparison."
 )
 
 why_text = (
-    f"Bu tasarimda k/d={selected_design.depth_ratio:.5f}, "
+    f"In this design, k/d={selected_design.depth_ratio:.5f}, "
     f"occupancy={to_percent(selected_design.occupancy)}, "
     f"VDR={selected_design.volume_ratio:.4f}. "
-    "Model bu geometriyi, secilen hiz-aci-spin kosulunda diger adaylarla karsilastiriyor ve "
+    "The model compares this geometry against other candidates under the selected speed-angle-spin condition and "
     + (
-        "no-spin modda en dusuk Cd degerine sahip olan tasarimi ust siraya koyuyor."
+        "in no-spin mode ranks the design with the lowest Cd at the top."
         if is_no_spin
-        else "spinli modda en iyi genel skor (mesafe + L/D - Cd etkisi) veren tasarimi ust siraya koyuyor."
+        else "in spin mode ranks the design with the best overall score (distance + L/D - Cd effect) at the top."
     )
 )
 
 col_a, col_b, col_c = st.columns(3)
-col_a.metric("Mesafe", f"{selected_result.carry_distance_m:.2f} m")
-col_b.metric("Ucusta kalma suresi", f"{selected_result.flight_time_s:.2f} s")
-col_c.metric("Maks yukseklik", f"{selected_result.max_height_m:.2f} m")
+col_a.metric("Distance", f"{selected_result.carry_distance_m:.2f} m")
+col_b.metric("Time in flight", f"{selected_result.flight_time_s:.2f} s")
+col_c.metric("Max height", f"{selected_result.max_height_m:.2f} m")
 
-st.markdown("**Neden bu sonuc cikti?**")
+st.markdown("**Why did this result occur?**")
 st.write(why_text)
 
-with st.expander("Terimler sozlugu (teknik bilmeyenler icin)"):
+with st.expander("Glossary (for non-technical users)"):
     st.markdown(
-        "- **k/d:** Dimple derinligi / top capi. Buyudukce dimple daha derin olur.\n"
-        "- **Occupancy:** Top yuzeyinin dimple ile kapli yuzdesi.\n"
-        "- **VDR:** Dimple hacim orani.\n"
-        "- **Cd:** Hava direnci gostergesi (kucuk olmasi genelde iyi).\n"
-        "- **Cl:** Kaldirma etkisi gostergesi.\n"
-        "- **L/D:** Kaldirma / surukleme orani. Buyuk olmasi genelde ucusu destekler."
+        "- **k/d:** Dimple depth / ball diameter. Larger values mean deeper dimples.\n"
+        "- **Occupancy:** Percentage of the ball surface covered by dimples.\n"
+        "- **VDR:** Dimple volume ratio.\n"
+        "- **Cd:** Aerodynamic drag indicator (lower is generally better).\n"
+        "- **Cl:** Lift effect indicator.\n"
+        "- **L/D:** Lift / drag ratio. Higher values generally support better flight."
     )
-with st.expander("Teknik detaylar (istersen)"):
+with st.expander("Technical details"):
     st.markdown(
-        f"- Secilen tasarim ortalama Cd: {selected_result.avg_cd:.3f}\n"
-        f"- Secilen tasarim ortalama Cl: {selected_result.avg_cl:.3f}\n"
-        f"- Secilen tasarim ortalama L/D: {selected_result.avg_l_over_d:.3f}\n"
-        "- Simulasyon, makalelerdeki Re, Sp, Cd, Cl ve kuvvet denklemlerinin sade bir surrogate modelini kullanir."
+        f"- Selected design average Cd: {selected_result.avg_cd:.3f}\n"
+        f"- Selected design average Cl: {selected_result.avg_cl:.3f}\n"
+        f"- Selected design average L/D: {selected_result.avg_l_over_d:.3f}\n"
+        "- The simulation uses a simplified surrogate model of Re, Sp, Cd, Cl, and force equations from the literature."
     )
 
 st.caption(
-    "Not: Bu sayfa karar destegi icindir. Nihai urun secimi icin secilen adaylarin deney/CFD ile dogrulanmasi onerilir."
+    "Note: This page is intended for decision support. Final product selection should be validated with experiments/CFD."
 )
