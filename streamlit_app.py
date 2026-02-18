@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from golf_simulator import (
+    BALL_DIAMETER,
     DimpleDesign,
     LaunchCondition,
     model_cd_cl,
@@ -15,6 +16,8 @@ from golf_simulator import (
     run_search_with_launch,
     simulate_flight_with_path,
 )
+
+BALL_DIAMETER_MM = BALL_DIAMETER * 1000.0
 
 
 st.set_page_config(page_title="Golf Ball Simulator", layout="wide")
@@ -348,6 +351,194 @@ def mode_test_summary(df: pd.DataFrame) -> tuple[list[str], list[str], dict[str,
     return changing, fixed, specs
 
 
+def build_results_formula_rows(is_no_spin: bool, view_mode: str) -> list[dict[str, str]]:
+    rank_formula = (
+        "Sort by 1 / Average Cd (descending), so lower drag gets higher rank."
+        if is_no_spin
+        else "Sort by Score (descending), where Score = carry + 25 * (L/D) - 30 * Cd."
+    )
+    rows = [
+        {
+            "Column": "Rank",
+            "Formula / Calculation": rank_formula,
+            "Meaning": "Position after comparing all tested candidates under the same launch condition.",
+        },
+        {
+            "Column": "Estimated carry distance (m)",
+            "Formula / Calculation": (
+                "state=(x,y,vx,vy). Just before landing: (x1,y1) with y1>0. "
+                "Next step: (x2,y2) with y2<0. "
+                "Touchdown x at y=0 is found by linear interpolation: "
+                "x_land = x1 + ((0-y1)/(y2-y1))*(x2-x1)."
+            ),
+            "Meaning": "Estimated horizontal landing point (carry) at the exact ground-crossing moment.",
+        },
+        {
+            "Column": "Time in flight (s)",
+            "Formula / Calculation": "Simulation advances with dt=0.002 s. Each loop: t += dt. Stop when y < 0.",
+            "Meaning": "Total airborne duration from launch until ground contact.",
+        },
+        {
+            "Column": "Maximum height (m)",
+            "Formula / Calculation": "At each step, keep max_height = max(max_height, y).",
+            "Meaning": "Highest y value reached during flight.",
+        },
+        {
+            "Column": "Dimple depth (mm)",
+            "Formula / Calculation": f"dimple_depth_mm = (k/d) * {BALL_DIAMETER_MM:.2f}",
+            "Meaning": "Absolute depth converted from the dimensionless depth ratio.",
+        },
+        {
+            "Column": "Depth ratio (k/d)",
+            "Formula / Calculation": "Input geometry parameter from literature-supported design sets.",
+            "Meaning": "Relative dimple depth (depth divided by ball diameter).",
+        },
+        {
+            "Column": "Surface coverage ratio (%)",
+            "Formula / Calculation": "surface_coverage_pct = occupancy * 100",
+            "Meaning": "Share of ball surface covered by dimples.",
+        },
+        {
+            "Column": "Dimple volume ratio (VDR)",
+            "Formula / Calculation": "Input geometry parameter from literature VDR matrix.",
+            "Meaning": "Dimensionless dimple-volume indicator used by the Cd/Cl surrogate.",
+        },
+        {
+            "Column": "Total dimple count",
+            "Formula / Calculation": "Input geometry parameter (integer), not solved by flight equations.",
+            "Meaning": "Number of dimples on the ball design.",
+        },
+        {
+            "Column": "Dimple diameter (mm)",
+            "Formula / Calculation": "From literature groups: dimple_diameter_mm = (Cmean/d) * ball_diameter_mm.",
+            "Meaning": "Representative mean dimple diameter for that occupancy family.",
+        },
+        {
+            "Column": "Why is it good?",
+            "Formula / Calculation": "Rule-based text from thresholds on k/d, occupancy, L/D and reported distance.",
+            "Meaning": "Plain-language explanation generated for non-technical users.",
+        },
+    ]
+
+    if view_mode != "Simple":
+        rows.extend(
+            [
+                {
+                    "Column": "Score",
+                    "Formula / Calculation": "score = carry_distance + 25 * (L/D) - 30 * Cd",
+                    "Meaning": "Composite optimization score used for spin-enabled ranking.",
+                },
+                {
+                    "Column": "Average Cd",
+                    "Formula / Calculation": "avg_cd = sum(Cd_t) / samples",
+                    "Meaning": "Mean drag coefficient sampled along the trajectory.",
+                },
+                {
+                    "Column": "Average Cl",
+                    "Formula / Calculation": "avg_cl = sum(Cl_t) / samples",
+                    "Meaning": "Mean lift coefficient sampled along the trajectory.",
+                },
+                {
+                    "Column": "Average L/D",
+                    "Formula / Calculation": "avg_l_over_d = sum(Cl_t / max(Cd_t, 1e-6)) / samples",
+                    "Meaning": "Mean aerodynamic efficiency across the full flight.",
+                },
+                {
+                    "Column": "Surface coverage ratio (0-1)",
+                    "Formula / Calculation": "occupancy in native fractional scale (0 to 1).",
+                    "Meaning": "Same quantity as percentage column, without x100 conversion.",
+                },
+            ]
+        )
+
+    return rows
+
+
+def build_robust_formula_rows() -> list[dict[str, str]]:
+    return [
+        {
+            "Column": "Rank",
+            "Formula / Calculation": "Sort by (Robust score, Worst score, Average carry, -Nominal Cd, Nominal L/D), descending.",
+            "Meaning": "Best robust performer gets rank 1 with deterministic tie-breaks.",
+        },
+        {
+            "Column": "Robust score",
+            "Formula / Calculation": "robust = 0.60 * mean_score + 0.35 * worst_score - 0.05 * score_std",
+            "Meaning": "Balances average performance, worst-case safety, and consistency.",
+        },
+        {
+            "Column": "Average score",
+            "Formula / Calculation": "mean_score = mean(scenario_scores)",
+            "Meaning": "Average score across all robustness scenarios.",
+        },
+        {
+            "Column": "Worst score",
+            "Formula / Calculation": "worst_score = min(scenario_scores)",
+            "Meaning": "Conservative lower-bound performance across scenarios.",
+        },
+        {
+            "Column": "Score std dev",
+            "Formula / Calculation": "score_std = pstdev(scenario_scores)",
+            "Meaning": "Population standard deviation of scenario scores.",
+        },
+        {
+            "Column": "Average carry (m)",
+            "Formula / Calculation": "mean_distance_m = mean(scenario_carry_distances)",
+            "Meaning": "Average carry over all robustness scenarios.",
+        },
+        {
+            "Column": "Minimum carry (m)",
+            "Formula / Calculation": "min_distance_m = min(scenario_carry_distances)",
+            "Meaning": "Worst carry observed in robustness scenarios.",
+        },
+        {
+            "Column": "Nominal carry (m)",
+            "Formula / Calculation": "carry_distance from simulate_flight(base_launch, design)",
+            "Meaning": "Carry under the selected baseline launch only.",
+        },
+        {
+            "Column": "Nominal Cd",
+            "Formula / Calculation": "avg_cd from nominal simulation",
+            "Meaning": "Baseline drag indicator for the chosen launch point.",
+        },
+        {
+            "Column": "Nominal Cl",
+            "Formula / Calculation": "avg_cl from nominal simulation",
+            "Meaning": "Baseline lift indicator for the chosen launch point.",
+        },
+        {
+            "Column": "Nominal L/D",
+            "Formula / Calculation": "avg_l_over_d from nominal simulation",
+            "Meaning": "Baseline aerodynamic efficiency for the chosen launch point.",
+        },
+        {
+            "Column": "Depth ratio (k/d)",
+            "Formula / Calculation": "Input geometry parameter from literature-supported design sets.",
+            "Meaning": "Relative dimple depth.",
+        },
+        {
+            "Column": "Surface coverage ratio (0-1)",
+            "Formula / Calculation": "Input occupancy as fraction in [0, 1].",
+            "Meaning": "Fractional dimple-covered surface area.",
+        },
+        {
+            "Column": "Dimple volume ratio (VDR)",
+            "Formula / Calculation": "Input geometry parameter from literature VDR matrix.",
+            "Meaning": "Dimensionless dimple-volume indicator.",
+        },
+        {
+            "Column": "Total dimple count",
+            "Formula / Calculation": "Input geometry parameter (integer).",
+            "Meaning": "Total number of dimples in the design.",
+        },
+        {
+            "Column": "Dimple diameter (mm)",
+            "Formula / Calculation": "From literature groups: dimple_diameter_mm = (Cmean/d) * ball_diameter_mm.",
+            "Meaning": "Representative mean dimple diameter for the design family.",
+        },
+    ]
+
+
 def build_cd_re_curve(
     design: DimpleDesign, spin_rpm: int, speed_min_mps: float, speed_max_mps: float
 ) -> pd.DataFrame:
@@ -665,7 +856,7 @@ st.caption("The table includes core design information required for production d
 
 simple_df = top_df.copy()
 simple_df["occupancy_pct"] = simple_df["occupancy"] * 100.0
-simple_df["dimple_depth_mm"] = simple_df["depth_ratio_k_over_d"] * 42.67
+simple_df["dimple_depth_mm"] = simple_df["depth_ratio_k_over_d"] * BALL_DIAMETER_MM
 simple_df["why_good"] = simple_df.apply(result_comment, axis=1)
 
 if view_mode == "Simple":
@@ -732,7 +923,7 @@ else:
             "dimple_diameter_mm": "Dimple diameter (mm)",
         }
     ).copy()
-    tech_df["Dimple depth (mm)"] = tech_df["Depth ratio (k/d)"] * 42.67
+    tech_df["Dimple depth (mm)"] = tech_df["Depth ratio (k/d)"] * BALL_DIAMETER_MM
     tech_df["Surface coverage ratio (%)"] = tech_df["Surface coverage ratio (0-1)"] * 100.0
     if is_no_spin:
         # In no-spin wind tunnel mode, ranking is based on Cd.
@@ -759,6 +950,23 @@ else:
 
     st.dataframe(
         tech_df.style.format(tech_format),
+        width="stretch",
+        hide_index=True,
+    )
+
+with st.expander("Results table columns: formulas and meanings"):
+    st.caption(
+        "Flight metrics are produced by RK4 integration (dt=0.002 s) of aerodynamic forces "
+        "Fd = 0.5 * rho * U^2 * A * Cd and Fl = 0.5 * rho * U^2 * A * Cl."
+    )
+    st.markdown(
+        "- `state = (x, y, vx, vy)`: `x` is horizontal distance, `y` is height.\n"
+        "- `(x1, y1)`: last point above ground (`y1 > 0`).\n"
+        "- `(x2, y2)`: next point below ground (`y2 < 0`).\n"
+        "- Since landing happens between these two points, the exact touchdown `x` is interpolated."
+    )
+    st.dataframe(
+        pd.DataFrame(build_results_formula_rows(is_no_spin=is_no_spin, view_mode=view_mode)),
         width="stretch",
         hide_index=True,
     )
@@ -833,6 +1041,20 @@ else:
         width="stretch",
         hide_index=True,
     )
+
+    with st.expander("Global robust table columns: formulas and meanings"):
+        st.caption(
+            "Scenario set uses 27 launch combinations around baseline: "
+            "speed = base * {0.92, 1.00, 1.08}, angle = base + {-1, 0, +1} deg, "
+            "spin = clip(base * {0.90, 1.00, 1.10}, 1500, 4500). "
+            "Each scenario score is rank_value(result, launch); in this table (spin-enabled), "
+            "that score is carry + 25*(L/D) - 30*Cd."
+        )
+        st.dataframe(
+            pd.DataFrame(build_robust_formula_rows()),
+            width="stretch",
+            hide_index=True,
+        )
 
     st.markdown("#### Cd-Re comparison for designs in the global robust table")
     robust_compare_designs = [
