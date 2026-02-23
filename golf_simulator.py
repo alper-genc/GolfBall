@@ -128,7 +128,10 @@ SEARCH_MODES: dict[str, SearchConfig] = {
     ),
     "paper_literature_grid": SearchConfig(
         mode="paper_literature_grid",
-        description="Full literature set: 15 designs from papers, no artificial combinations.",
+        description=(
+            "Extended literature-aligned set: 50 designs "
+            "(15 measured + deterministic interpolated dummy points)."
+        ),
     ),
 }
 
@@ -175,6 +178,55 @@ def calibrate_production_launch(
 
 
 DEFAULT_PRODUCTION_LAUNCH = calibrate_production_launch()
+
+
+def interpolate_series(x: float, xs: list[float], ys: list[float]) -> float:
+    """Piecewise-linear interpolation on a sorted axis with edge clamping."""
+    if len(xs) != len(ys):
+        raise ValueError("Axis and value sizes do not match.")
+    if not xs:
+        raise ValueError("Interpolation axis is empty.")
+    if x <= xs[0]:
+        return ys[0]
+    if x >= xs[-1]:
+        return ys[-1]
+    for i in range(len(xs) - 1):
+        x0 = xs[i]
+        x1 = xs[i + 1]
+        if x0 <= x <= x1:
+            y0 = ys[i]
+            y1 = ys[i + 1]
+            if abs(x1 - x0) < 1e-12:
+                return y0
+            ratio = (x - x0) / (x1 - x0)
+            return y0 + ratio * (y1 - y0)
+    return ys[-1]
+
+
+def literature_group_value_at_occupancy(occupancy: float, key: str) -> float:
+    """Interpolate occupancy-group properties from literature family points."""
+    occ_axis = [float(g["occupancy"]) for g in PAPER_OCCUPANCY_GROUPS]
+    val_axis = [float(g[key]) for g in PAPER_OCCUPANCY_GROUPS]
+    return interpolate_series(occupancy, occ_axis, val_axis)
+
+
+def literature_vdr_at(depth_ratio: float, occupancy: float) -> float:
+    """
+    Bilinear interpolation over the 3x5 literature VDR table.
+    This keeps dummy points trend-aligned with measured paper data.
+    """
+    depth_axis = list(PAPER_DEPTH_RATIOS)
+    occ_axis = [float(g["occupancy"]) for g in PAPER_OCCUPANCY_GROUPS]
+    row_values = [
+        interpolate_series(occupancy, occ_axis, list(PAPER_VDR_MATRIX[dr])) for dr in depth_axis
+    ]
+    return interpolate_series(depth_ratio, depth_axis, row_values)
+
+
+# Dense but deterministic paper_literature_grid axes:
+# 5 depth levels x 10 occupancy levels = 50 tested designs.
+PAPER_GRID_DEPTH_LEVELS = [4.55e-3, 5.68e-3, 6.82e-3, 7.95e-3, 9.09e-3]
+PAPER_GRID_OCCUPANCY_LEVELS = [0.526, 0.561, 0.596, 0.631, 0.666, 0.703, 0.739, 0.775, 0.812, 0.831]
 
 
 def spin_parameter(speed: float, spin_rpm: float) -> float:
@@ -486,26 +538,30 @@ def build_design_space(mode: str = "paper_literature_grid") -> list[DimpleDesign
 
     if mode == "paper_volume_only":
         # VDR trend is assessed from the full literature set.
-        # Keep this mode as an alias to the same 15-design set for clear trend inspection.
+        # Keep this mode as an alias to the same 50-design set for clear trend inspection.
         mode = "paper_literature_grid"
 
     # paper_literature_grid
-    # Use only literature-consistent designs (not full cross-product).
-    # This prevents unrealistic combinations and repeated rows with same aerodynamic inputs.
+    # Build 50 deterministic, literature-aligned designs:
+    # - original measured ranges are preserved
+    # - extra dummy points are interpolation-based (never random)
     designs = []
-    for dr in PAPER_DEPTH_RATIOS:
-        vdr_row = PAPER_VDR_MATRIX[dr]
-        for i, grp in enumerate(PAPER_OCCUPANCY_GROUPS):
-            mean_dimple_diam_mm = grp["cm_over_d"] * BALL_DIAMETER * 1000.0
+    for dr in PAPER_GRID_DEPTH_LEVELS:
+        for occupancy in PAPER_GRID_OCCUPANCY_LEVELS:
+            cm_over_d = literature_group_value_at_occupancy(occupancy, "cm_over_d")
+            mean_dimple_diam_mm = cm_over_d * BALL_DIAMETER * 1000.0
+            dimple_count = int(round(literature_group_value_at_occupancy(occupancy, "dimple_count")))
             designs.append(
                 DimpleDesign(
                     depth_ratio=dr,
-                    occupancy=grp["occupancy"],
-                    volume_ratio=vdr_row[i],
-                    dimple_count=grp["dimple_count"],
+                    occupancy=occupancy,
+                    volume_ratio=literature_vdr_at(dr, occupancy),
+                    dimple_count=dimple_count,
                     dimple_diameter_mm=mean_dimple_diam_mm,
                 )
             )
+    if len(designs) != 50:
+        raise RuntimeError(f"Expected 50 paper_literature_grid designs, got {len(designs)}")
     return designs
 
 

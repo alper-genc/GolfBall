@@ -32,7 +32,7 @@ MODE_LABELS = {
     "paper_depth_only": "Depth effect test (single variable)",
     "paper_occupancy_only": "Coverage ratio effect test (single variable)",
     "paper_volume_only": "VDR trend test (literature set)",
-    "paper_literature_grid": "All literature designs (15 total)",
+    "paper_literature_grid": "All literature designs",
 }
 
 MODE_LONG_INFO = {
