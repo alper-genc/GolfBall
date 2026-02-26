@@ -58,7 +58,7 @@ CONTEXTS = {
         "speed_max_mps": 140.0 / 3.6,
         "speed_default_mps": 100.0 / 3.6,
         "spin_min": 0,
-        "spin_max": 2000,
+        "spin_max": 4500,
         "spin_default": 0,
     },
     "human_flight": {
@@ -1349,6 +1349,14 @@ st.caption(
 # 4) Export for SolidWorks
 # ---------------------------------------------------------------
 st.subheader("4) Export for SolidWorks")
+
+if is_no_spin:
+    st.warning(
+        "**Spin is set to 0 (wind tunnel mode).** Rankings in this mode are based on drag only — "
+        "lift is zero. For production golf ball design, set spin to a realistic value "
+        "(e.g. 2500-3000 RPM) before exporting. The optimal design changes significantly with spin."
+    )
+
 st.markdown(
     "Generate a **complete SolidWorks import pack** for the selected design.  \n"
     "This uses Fibonacci (golden-angle) lattice to distribute dimple centers uniformly "
