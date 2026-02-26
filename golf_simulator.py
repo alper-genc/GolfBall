@@ -278,14 +278,20 @@ def max_feasible_dimple_diameter(
     min_land_width_mm: float = MIN_LAND_WIDTH_MM,
     ball_surface_area_mm2: float = BALL_SURFACE_AREA_MM2,
     packing_efficiency: float = 0.87,
+    manufacturing_margin: float = 0.95,
 ) -> float:
     """
     Inverse of theoretical_max_dimple_count: given a target dimple count,
     return the largest dimple diameter that physically fits on the ball.
+
+    manufacturing_margin (default 0.95) reserves ~5% headroom so that
+    the resulting design is comfortably below the packing limit rather
+    than sitting at the theoretical knife-edge.
     """
     if dimple_count <= 0:
         return 0.0
-    area_per_hex = ball_surface_area_mm2 * packing_efficiency / dimple_count
+    effective_count = dimple_count / manufacturing_margin
+    area_per_hex = ball_surface_area_mm2 * packing_efficiency / effective_count
     center_dist = sqrt(2.0 * area_per_hex / sqrt(3.0))
     return max(center_dist - min_land_width_mm, 0.1)
 
