@@ -10,6 +10,8 @@ from golf_simulator import (
     BALL_DIAMETER,
     DimpleDesign,
     LaunchCondition,
+    MIN_LAND_WIDTH_MM,
+    estimate_hex_packing_land_width_mm,
     model_cd_cl,
     reynolds_number,
     run_robust_search,
@@ -37,9 +39,9 @@ MODE_LABELS = {
 
 MODE_LONG_INFO = {
     "paper_depth_only": "What changes: only dimple depth. What stays fixed: same dimple family (O=81.2%, ND=476).",
-    "paper_occupancy_only": "What changes: only coverage family (occupancy groups). What stays fixed: depth D/d=4.55e-3.",
+    "paper_occupancy_only": "What changes: only coverage family (occupancy groups). What stays fixed: depth (k / ball diameter)=4.55e-3.",
     "paper_volume_only": "What changes: all 15 literature designs are evaluated together to observe the VDR trend.",
-    "paper_literature_grid": "What changes: all 15 designs from the paper. No synthetic combinations are used.",
+    "paper_literature_grid": "What changes: 50 literature-aligned designs (15 measured points + deterministic interpolations).",
 }
 
 CONTEXTS = {
@@ -275,6 +277,7 @@ def run_cached_search(speed_mps: float, launch_angle_deg: float, spin_rpm: float
                 "volume_ratio": design.volume_ratio,
                 "dimple_count": design.dimple_count,
                 "dimple_diameter_mm": design.dimple_diameter_mm,
+                "estimated_land_width_mm": estimate_hex_packing_land_width_mm(design),
             }
         )
     return pd.DataFrame(rows)
@@ -310,6 +313,7 @@ def run_cached_robust_search(speed_mps: float, launch_angle_deg: float, spin_rpm
                 "volume_ratio": design.volume_ratio,
                 "dimple_count": design.dimple_count,
                 "dimple_diameter_mm": design.dimple_diameter_mm,
+                "estimated_land_width_mm": estimate_hex_packing_land_width_mm(design),
             }
         )
     return pd.DataFrame(rows), len(scenarios)
@@ -333,7 +337,7 @@ def mode_test_summary(df: pd.DataFrame) -> tuple[list[str], list[str], dict[str,
     dd_vals = sorted(df["dimple_diameter_mm"].unique().tolist())
 
     specs = {
-        "Depth ratio (k/d)": format_unique(depth_vals, ".5f"),
+        "Depth ratio (k / ball diameter)": format_unique(depth_vals, ".5f"),
         "Surface coverage ratio (%)": format_unique([v * 100 for v in occ_vals], ".1f"),
         "Dimple volume ratio (VDR)": format_unique(vdr_vals, ".4f"),
         "Total dimple count": ", ".join(str(int(v)) for v in nd_vals),
@@ -341,7 +345,7 @@ def mode_test_summary(df: pd.DataFrame) -> tuple[list[str], list[str], dict[str,
     }
 
     changing = [k for k, vals in [
-        ("Depth ratio (k/d)", depth_vals),
+        ("Depth ratio (k / ball diameter)", depth_vals),
         ("Surface coverage ratio (%)", occ_vals),
         ("Dimple volume ratio (VDR)", vdr_vals),
         ("Total dimple count", nd_vals),
@@ -385,13 +389,18 @@ def build_results_formula_rows(is_no_spin: bool, view_mode: str) -> list[dict[st
         },
         {
             "Column": "Dimple depth (mm)",
-            "Formula / Calculation": f"dimple_depth_mm = (k/d) * {BALL_DIAMETER_MM:.2f}",
-            "Meaning": "Absolute depth converted from the dimensionless depth ratio.",
+            "Formula / Calculation": f"dimple_depth_mm = (k / ball_diameter) * {BALL_DIAMETER_MM:.2f}",
+            "Meaning": "Absolute depth converted from depth ratio referenced to ball diameter.",
         },
         {
-            "Column": "Depth ratio (k/d)",
+            "Column": "Depth ratio (k / ball diameter)",
             "Formula / Calculation": "Input geometry parameter from literature-supported design sets.",
             "Meaning": "Relative dimple depth (depth divided by ball diameter).",
+        },
+        {
+            "Column": "Depth ratio (k / dimple diameter)",
+            "Formula / Calculation": "depth_ratio_k_over_dimple = dimple_depth_mm / dimple_diameter_mm",
+            "Meaning": "Manufacturing-focused depth ratio using dimple diameter as denominator.",
         },
         {
             "Column": "Surface coverage ratio (%)",
@@ -414,8 +423,16 @@ def build_results_formula_rows(is_no_spin: bool, view_mode: str) -> list[dict[st
             "Meaning": "Representative mean dimple diameter for that occupancy family.",
         },
         {
+            "Column": "Estimated land width (mm)",
+            "Formula / Calculation": (
+                "Approx. hex-packing gap: area_per = ball_surface_area / dimple_count; "
+                "center_spacing = sqrt((2*area_per)/sqrt(3)); land = center_spacing - dimple_diameter."
+            ),
+            "Meaning": "Estimated average gap between neighboring dimples used for manufacturability screening.",
+        },
+        {
             "Column": "Why is it good?",
-            "Formula / Calculation": "Rule-based text from thresholds on k/d, occupancy, L/D and reported distance.",
+            "Formula / Calculation": "Rule-based text from thresholds on depth ratio, occupancy, L/D and reported distance.",
             "Meaning": "Plain-language explanation generated for non-technical users.",
         },
     ]
@@ -512,9 +529,14 @@ def build_robust_formula_rows() -> list[dict[str, str]]:
             "Meaning": "Baseline aerodynamic efficiency for the chosen launch point.",
         },
         {
-            "Column": "Depth ratio (k/d)",
+            "Column": "Depth ratio (k / ball diameter)",
             "Formula / Calculation": "Input geometry parameter from literature-supported design sets.",
             "Meaning": "Relative dimple depth.",
+        },
+        {
+            "Column": "Depth ratio (k / dimple diameter)",
+            "Formula / Calculation": "depth_ratio_k_over_dimple = dimple_depth_mm / dimple_diameter_mm",
+            "Meaning": "Secondary depth ratio often used by design/manufacturing teams.",
         },
         {
             "Column": "Surface coverage ratio (0-1)",
@@ -535,6 +557,14 @@ def build_robust_formula_rows() -> list[dict[str, str]]:
             "Column": "Dimple diameter (mm)",
             "Formula / Calculation": "From literature groups: dimple_diameter_mm = (Cmean/d) * ball_diameter_mm.",
             "Meaning": "Representative mean dimple diameter for the design family.",
+        },
+        {
+            "Column": "Estimated land width (mm)",
+            "Formula / Calculation": (
+                "Approx. hex-packing gap: area_per = ball_surface_area / dimple_count; "
+                "center_spacing = sqrt((2*area_per)/sqrt(3)); land = center_spacing - dimple_diameter."
+            ),
+            "Meaning": f"Used for manufacturability filtering (must be >= {MIN_LAND_WIDTH_MM:.2f} mm).",
         },
     ]
 
@@ -641,7 +671,7 @@ def build_design_legend(designs: list[DimpleDesign]) -> pd.DataFrame:
         rows.append(
             {
                 "Label": f"S{idx}",
-                "k/d": d.depth_ratio,
+                "k / ball diameter": d.depth_ratio,
                 "Surface coverage (%)": d.occupancy * 100.0,
                 "VDR": d.volume_ratio,
                 "Dimple count": d.dimple_count,
@@ -853,10 +883,15 @@ st.success(
 
 st.subheader("2) Results (starting from best)")
 st.caption("The table includes core design information required for production decisions.")
+st.caption(
+    f"Manufacturability filter applied: estimated land width >= {MIN_LAND_WIDTH_MM:.2f} mm "
+    "(hex-packing approximation). If no candidate passes in a selected mode, the app safely falls back to the full mode set."
+)
 
 simple_df = top_df.copy()
 simple_df["occupancy_pct"] = simple_df["occupancy"] * 100.0
 simple_df["dimple_depth_mm"] = simple_df["depth_ratio_k_over_d"] * BALL_DIAMETER_MM
+simple_df["depth_ratio_k_over_dimple"] = simple_df["dimple_depth_mm"] / simple_df["dimple_diameter_mm"]
 simple_df["why_good"] = simple_df.apply(result_comment, axis=1)
 
 if view_mode == "Simple":
@@ -868,10 +903,12 @@ if view_mode == "Simple":
             "max_height_m",
             "dimple_depth_mm",
             "depth_ratio_k_over_d",
+            "depth_ratio_k_over_dimple",
             "occupancy_pct",
             "volume_ratio",
             "dimple_count",
             "dimple_diameter_mm",
+            "estimated_land_width_mm",
             "why_good",
         ]
     ].rename(
@@ -881,11 +918,13 @@ if view_mode == "Simple":
             "flight_time_s": "Time in flight (s)",
             "max_height_m": "Maximum height (m)",
             "dimple_depth_mm": "Dimple depth (mm)",
-            "depth_ratio_k_over_d": "Depth ratio (k/d)",
+            "depth_ratio_k_over_d": "Depth ratio (k / ball diameter)",
+            "depth_ratio_k_over_dimple": "Depth ratio (k / dimple diameter)",
             "occupancy_pct": "Surface coverage ratio (%)",
             "volume_ratio": "Dimple volume ratio (VDR)",
             "dimple_count": "Total dimple count",
             "dimple_diameter_mm": "Dimple diameter (mm)",
+            "estimated_land_width_mm": "Estimated land width (mm)",
             "why_good": "Why is it good?",
         }
     )
@@ -896,10 +935,12 @@ if view_mode == "Simple":
                 "Time in flight (s)": "{:.2f}",
                 "Maximum height (m)": "{:.2f}",
                 "Dimple depth (mm)": "{:.3f}",
-                "Depth ratio (k/d)": "{:.5f}",
+                "Depth ratio (k / ball diameter)": "{:.5f}",
+                "Depth ratio (k / dimple diameter)": "{:.5f}",
                 "Surface coverage ratio (%)": "{:.1f}",
                 "Dimple volume ratio (VDR)": "{:.4f}",
                 "Dimple diameter (mm)": "{:.2f}",
+                "Estimated land width (mm)": "{:.3f}",
             }
         ),
         width="stretch",
@@ -916,14 +957,18 @@ else:
             "avg_cd": "Average Cd",
             "avg_cl": "Average Cl",
             "avg_l_over_d": "Average L/D",
-            "depth_ratio_k_over_d": "Depth ratio (k/d)",
+            "depth_ratio_k_over_d": "Depth ratio (k / ball diameter)",
             "occupancy": "Surface coverage ratio (0-1)",
             "volume_ratio": "Dimple volume ratio (VDR)",
             "dimple_count": "Total dimple count",
             "dimple_diameter_mm": "Dimple diameter (mm)",
+            "estimated_land_width_mm": "Estimated land width (mm)",
         }
     ).copy()
-    tech_df["Dimple depth (mm)"] = tech_df["Depth ratio (k/d)"] * BALL_DIAMETER_MM
+    tech_df["Dimple depth (mm)"] = tech_df["Depth ratio (k / ball diameter)"] * BALL_DIAMETER_MM
+    tech_df["Depth ratio (k / dimple diameter)"] = (
+        tech_df["Dimple depth (mm)"] / tech_df["Dimple diameter (mm)"]
+    )
     tech_df["Surface coverage ratio (%)"] = tech_df["Surface coverage ratio (0-1)"] * 100.0
     if is_no_spin:
         # In no-spin wind tunnel mode, ranking is based on Cd.
@@ -938,12 +983,14 @@ else:
         "Average Cd": "{:.3f}",
         "Average Cl": "{:.3f}",
         "Average L/D": "{:.3f}",
-        "Depth ratio (k/d)": "{:.5f}",
+        "Depth ratio (k / ball diameter)": "{:.5f}",
+        "Depth ratio (k / dimple diameter)": "{:.5f}",
         "Surface coverage ratio (0-1)": "{:.3f}",
         "Surface coverage ratio (%)": "{:.1f}",
         "Dimple volume ratio (VDR)": "{:.4f}",
         "Dimple diameter (mm)": "{:.2f}",
         "Dimple depth (mm)": "{:.3f}",
+        "Estimated land width (mm)": "{:.3f}",
     }
     if is_no_spin and "Score" in tech_format:
         tech_format.pop("Score")
@@ -1011,12 +1058,19 @@ else:
             "nominal_avg_cd": "Nominal Cd",
             "nominal_avg_cl": "Nominal Cl",
             "nominal_avg_l_over_d": "Nominal L/D",
-            "depth_ratio_k_over_d": "Depth ratio (k/d)",
+            "depth_ratio_k_over_d": "Depth ratio (k / ball diameter)",
             "occupancy": "Surface coverage ratio (0-1)",
             "volume_ratio": "Dimple volume ratio (VDR)",
             "dimple_count": "Total dimple count",
             "dimple_diameter_mm": "Dimple diameter (mm)",
+            "estimated_land_width_mm": "Estimated land width (mm)",
         }
+    )
+    robust_show_df["Dimple depth (mm)"] = (
+        robust_show_df["Depth ratio (k / ball diameter)"] * BALL_DIAMETER_MM
+    )
+    robust_show_df["Depth ratio (k / dimple diameter)"] = (
+        robust_show_df["Dimple depth (mm)"] / robust_show_df["Dimple diameter (mm)"]
     )
 
     st.dataframe(
@@ -1032,10 +1086,13 @@ else:
                 "Nominal Cd": "{:.3f}",
                 "Nominal Cl": "{:.3f}",
                 "Nominal L/D": "{:.3f}",
-                "Depth ratio (k/d)": "{:.5f}",
+                "Depth ratio (k / ball diameter)": "{:.5f}",
+                "Depth ratio (k / dimple diameter)": "{:.5f}",
                 "Surface coverage ratio (0-1)": "{:.3f}",
                 "Dimple volume ratio (VDR)": "{:.4f}",
                 "Dimple diameter (mm)": "{:.2f}",
+                "Dimple depth (mm)": "{:.3f}",
+                "Estimated land width (mm)": "{:.3f}",
             }
         ),
         width="stretch",
@@ -1108,7 +1165,7 @@ else:
         st.dataframe(
             robust_legend_df.style.format(
                 {
-                    "k/d": "{:.5f}",
+                    "k / ball diameter": "{:.5f}",
                     "Surface coverage (%)": "{:.1f}",
                     "VDR": "{:.4f}",
                     "Dimple diameter (mm)": "{:.2f}",
@@ -1171,7 +1228,7 @@ with st.expander("Chart labels (S1, S2, ...)"):
     st.dataframe(
         legend_df.style.format(
             {
-                "k/d": "{:.5f}",
+                "k / ball diameter": "{:.5f}",
                 "Surface coverage (%)": "{:.1f}",
                 "VDR": "{:.4f}",
                 "Dimple diameter (mm)": "{:.2f}",
@@ -1229,7 +1286,7 @@ st.caption(
 )
 
 why_text = (
-    f"In this design, k/d={selected_design.depth_ratio:.5f}, "
+    f"In this design, k/ball_d={selected_design.depth_ratio:.5f}, "
     f"occupancy={to_percent(selected_design.occupancy)}, "
     f"VDR={selected_design.volume_ratio:.4f}. "
     "The model compares this geometry against other candidates under the selected speed-angle-spin condition and "
@@ -1250,7 +1307,7 @@ st.write(why_text)
 
 with st.expander("Glossary (for non-technical users)"):
     st.markdown(
-        "- **k/d:** Dimple depth / ball diameter. Larger values mean deeper dimples.\n"
+        "- **k / ball diameter:** Dimple depth divided by ball diameter. Larger values mean deeper dimples.\n"
         "- **Occupancy:** Percentage of the ball surface covered by dimples.\n"
         "- **VDR:** Dimple volume ratio.\n"
         "- **Cd:** Aerodynamic drag indicator (lower is generally better).\n"

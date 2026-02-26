@@ -31,6 +31,12 @@ BALL_DIAMETER = 0.04267  # m
 BALL_RADIUS = BALL_DIAMETER / 2.0
 BALL_AREA = pi * BALL_RADIUS**2  # projected area
 BALL_MASS = 0.04593  # kg
+BALL_DIAMETER_MM = BALL_DIAMETER * 1000.0
+BALL_SURFACE_AREA_MM2 = 4.0 * pi * (BALL_DIAMETER_MM / 2.0) ** 2
+
+# Approximate manufacturability guard:
+# required minimum land width (gap) between neighboring dimples.
+MIN_LAND_WIDTH_MM = 0.25
 
 # Wind-tunnel-focused speed band from the studied papers:
 # 20-120 km/h and 40-140 km/h -> union 20-140 km/h
@@ -48,7 +54,7 @@ class LaunchCondition:
 
 @dataclass(frozen=True)
 class DimpleDesign:
-    depth_ratio: float  # k/d
+    depth_ratio: float  # k / ball_diameter
     occupancy: float  # 0.0 - 1.0
     volume_ratio: float  # dimensionless, e.g. 0.011 = 11e-3
     dimple_count: int
@@ -243,6 +249,37 @@ def clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(value, upper))
 
 
+def estimate_hex_packing_land_width_mm(design: DimpleDesign) -> float:
+    """
+    Estimate average gap between dimples by assuming near-hexagonal packing
+    over the sphere's surface. This is a practical manufacturability proxy.
+    """
+    if design.dimple_count <= 0:
+        return -design.dimple_diameter_mm
+    area_per_dimple = BALL_SURFACE_AREA_MM2 / float(design.dimple_count)
+    center_spacing_mm = sqrt((2.0 * area_per_dimple) / sqrt(3.0))
+    return center_spacing_mm - design.dimple_diameter_mm
+
+
+def is_design_manufacturable(
+    design: DimpleDesign,
+    min_land_width_mm: float = MIN_LAND_WIDTH_MM,
+) -> bool:
+    return estimate_hex_packing_land_width_mm(design) >= min_land_width_mm
+
+
+def apply_manufacturability_filter(
+    designs: list[DimpleDesign],
+    min_land_width_mm: float = MIN_LAND_WIDTH_MM,
+) -> list[DimpleDesign]:
+    """
+    Keep only manufacturable candidates. If a given mode has zero passing designs,
+    fall back to the original set so UI flows never crash.
+    """
+    filtered = [d for d in designs if is_design_manufacturable(d, min_land_width_mm)]
+    return filtered if filtered else designs
+
+
 def model_cd_cl(speed: float, spin_rpm: float, design: DimpleDesign) -> tuple[float, float]:
     """
     Literature-inspired surrogate model for Cd and Cl.
@@ -257,7 +294,7 @@ def model_cd_cl(speed: float, spin_rpm: float, design: DimpleDesign) -> tuple[fl
     """
     re = reynolds_number(speed)
     sp = spin_parameter(speed, spin_rpm)
-    eps = design.depth_ratio  # same form as relative roughness k/d
+    eps = design.depth_ratio  # uses k / ball_diameter scale from the literature set
 
     # Base drag from roughness correlations (2016 study trend).
     # cd_min ~= 4.9278*eps + 0.0621
@@ -574,7 +611,8 @@ def run_search_with_launch(
     launch: LaunchCondition,
     mode: str = "paper_literature_grid",
 ) -> tuple[list[tuple[DimpleDesign, SimulationResult, float]], LaunchCondition]:
-    design_space = build_design_space(mode=mode)
+    all_designs = build_design_space(mode=mode)
+    design_space = apply_manufacturability_filter(all_designs)
 
     ranked: list[tuple[DimpleDesign, SimulationResult, float]] = []
     for design in design_space:
@@ -634,7 +672,8 @@ def run_robust_search(
     mode: str = "paper_literature_grid",
     base_launch: LaunchCondition = DEFAULT_PRODUCTION_LAUNCH,
 ) -> tuple[list[RobustDesignResult], LaunchCondition, list[LaunchCondition]]:
-    design_space = build_design_space(mode=mode)
+    all_designs = build_design_space(mode=mode)
+    design_space = apply_manufacturability_filter(all_designs)
     scenarios = build_robust_launch_set(base_launch)
 
     ranked: list[RobustDesignResult] = []
@@ -688,11 +727,12 @@ def write_csv(path: Path, ranked: list[tuple[DimpleDesign, SimulationResult, flo
                 "avg_cd",
                 "avg_cl",
                 "avg_l_over_d",
-                "depth_ratio_k_over_d",
+                "depth_ratio_k_over_ball_d",
                 "occupancy",
                 "volume_ratio",
                 "dimple_count",
                 "dimple_diameter_mm",
+                "estimated_land_width_mm",
             ]
         )
 
@@ -712,6 +752,7 @@ def write_csv(path: Path, ranked: list[tuple[DimpleDesign, SimulationResult, flo
                     d.volume_ratio,
                     d.dimple_count,
                     d.dimple_diameter_mm,
+                    round(estimate_hex_packing_land_width_mm(d), 4),
                 ]
             )
 
@@ -734,19 +775,21 @@ def write_summary(path: Path, ranked: list[tuple[DimpleDesign, SimulationResult,
     lines.append(f"- Average Cd: {best_r.avg_cd:.3f}")
     lines.append(f"- Average Cl: {best_r.avg_cl:.3f}")
     lines.append(f"- Average L/D: {best_r.avg_l_over_d:.3f}")
-    lines.append(f"- Depth ratio k/d: {best_d.depth_ratio:.5f}")
+    lines.append(f"- Depth ratio (k / ball diameter): {best_d.depth_ratio:.5f}")
     lines.append(f"- Occupancy: {best_d.occupancy:.3f}")
     lines.append(f"- Volume ratio: {best_d.volume_ratio:.4f}")
     lines.append(f"- Dimple count: {best_d.dimple_count}")
     lines.append(f"- Dimple diameter: {best_d.dimple_diameter_mm:.2f} mm")
+    lines.append(f"- Estimated land width: {estimate_hex_packing_land_width_mm(best_d):.3f} mm")
     lines.append("")
     lines.append("## Top 5 Designs")
     for i, (d, r, s) in enumerate(top, start=1):
         lines.append(
             f"- #{i}: score={s:.2f}, distance={r.carry_distance_m:.2f} m, "
             f"Cd={r.avg_cd:.3f}, Cl={r.avg_cl:.3f}, L/D={r.avg_l_over_d:.3f}, "
-            f"k/d={d.depth_ratio:.5f}, O={d.occupancy:.3f}, VDR={d.volume_ratio:.4f}, "
-            f"ND={d.dimple_count}, dimple_diam={d.dimple_diameter_mm:.2f} mm"
+            f"k/ball_d={d.depth_ratio:.5f}, O={d.occupancy:.3f}, VDR={d.volume_ratio:.4f}, "
+            f"ND={d.dimple_count}, dimple_diam={d.dimple_diameter_mm:.2f} mm, "
+            f"land={estimate_hex_packing_land_width_mm(d):.3f} mm"
         )
 
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -768,11 +811,12 @@ def write_robust_csv(path: Path, ranked: list[RobustDesignResult]) -> None:
                 "nominal_avg_cd",
                 "nominal_avg_cl",
                 "nominal_avg_l_over_d",
-                "depth_ratio_k_over_d",
+                "depth_ratio_k_over_ball_d",
                 "occupancy",
                 "volume_ratio",
                 "dimple_count",
                 "dimple_diameter_mm",
+                "estimated_land_width_mm",
             ]
         )
 
@@ -797,6 +841,7 @@ def write_robust_csv(path: Path, ranked: list[RobustDesignResult]) -> None:
                     d.volume_ratio,
                     d.dimple_count,
                     d.dimple_diameter_mm,
+                    round(estimate_hex_packing_land_width_mm(d), 4),
                 ]
             )
 
@@ -836,8 +881,9 @@ def write_robust_summary(
     lines.append(f"- Nominal carry: {n.carry_distance_m:.2f} m")
     lines.append(f"- Nominal Cd: {n.avg_cd:.3f}, Cl: {n.avg_cl:.3f}, L/D: {n.avg_l_over_d:.3f}")
     lines.append(
-        f"- Geometry: k/d={d.depth_ratio:.5f}, O={d.occupancy:.3f}, VDR={d.volume_ratio:.4f}, "
-        f"ND={d.dimple_count}, dimple_diam={d.dimple_diameter_mm:.2f} mm"
+        f"- Geometry: k/ball_d={d.depth_ratio:.5f}, O={d.occupancy:.3f}, VDR={d.volume_ratio:.4f}, "
+        f"ND={d.dimple_count}, dimple_diam={d.dimple_diameter_mm:.2f} mm, "
+        f"land={estimate_hex_packing_land_width_mm(d):.3f} mm"
     )
     lines.append("")
     lines.append("## Top 5 Robust Designs")
@@ -847,7 +893,8 @@ def write_robust_summary(
             f"- #{i}: robust={item.robust_score:.2f}, mean={item.mean_score:.2f}, "
             f"worst={item.worst_score:.2f}, std={item.score_std:.2f}, "
             f"mean_carry={item.mean_distance_m:.2f} m, min_carry={item.min_distance_m:.2f} m, "
-            f"k/d={d.depth_ratio:.5f}, O={d.occupancy:.3f}, VDR={d.volume_ratio:.4f}, ND={d.dimple_count}"
+            f"k/ball_d={d.depth_ratio:.5f}, O={d.occupancy:.3f}, VDR={d.volume_ratio:.4f}, "
+            f"ND={d.dimple_count}, land={estimate_hex_packing_land_width_mm(d):.3f} mm"
         )
 
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -875,19 +922,21 @@ def main() -> None:
     print(f"Best carry distance: {best_r.carry_distance_m:.2f} m")
     print(
         "Best parameters: "
-        f"k/d={best_d.depth_ratio:.5f}, "
+        f"k/ball_d={best_d.depth_ratio:.5f}, "
         f"occupancy={best_d.occupancy:.3f}, "
         f"volume_ratio={best_d.volume_ratio:.4f}, "
         f"dimple_count={best_d.dimple_count}, "
-        f"dimple_diameter={best_d.dimple_diameter_mm:.2f} mm"
+        f"dimple_diameter={best_d.dimple_diameter_mm:.2f} mm, "
+        f"land_width={estimate_hex_packing_land_width_mm(best_d):.3f} mm"
     )
     print(
         "Best robust parameters: "
-        f"k/d={robust_best_d.depth_ratio:.5f}, "
+        f"k/ball_d={robust_best_d.depth_ratio:.5f}, "
         f"occupancy={robust_best_d.occupancy:.3f}, "
         f"volume_ratio={robust_best_d.volume_ratio:.4f}, "
         f"dimple_count={robust_best_d.dimple_count}, "
-        f"dimple_diameter={robust_best_d.dimple_diameter_mm:.2f} mm"
+        f"dimple_diameter={robust_best_d.dimple_diameter_mm:.2f} mm, "
+        f"land_width={estimate_hex_packing_land_width_mm(robust_best_d):.3f} mm"
     )
     print(f"Best robust score: {robust_best.robust_score:.3f}")
     print(f"Saved: {out_csv}")
