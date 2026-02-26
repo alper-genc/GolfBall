@@ -8,18 +8,23 @@ import streamlit as st
 
 from golf_simulator import (
     BALL_DIAMETER,
+    BALL_DIAMETER_MM,
     DimpleDesign,
     LaunchCondition,
     MIN_LAND_WIDTH_MM,
     estimate_hex_packing_land_width_mm,
+    export_solidworks_csv,
+    export_solidworks_macro,
+    export_design_json,
+    generate_fibonacci_dimple_centers,
+    theoretical_max_dimple_count,
+    validate_dimple_placement,
     model_cd_cl,
     reynolds_number,
     run_robust_search,
     run_search_with_launch,
     simulate_flight_with_path,
 )
-
-BALL_DIAMETER_MM = BALL_DIAMETER * 1000.0
 
 
 st.set_page_config(page_title="Golf Ball Simulator", layout="wide")
@@ -844,6 +849,14 @@ else:
         spin_rpm=spin_rpm,
         mode=mode,
     )
+if df.empty:
+    st.error(
+        "No manufacturable design found for this test mode. "
+        "All candidate designs exceed the physical packing limit or fail the minimum land-width check. "
+        "Please switch to a different test type (e.g. **Literature grid**) or adjust input parameters."
+    )
+    st.stop()
+
 top_df = df.head(top_n).copy()
 best = top_df.iloc[0]
 is_no_spin = int(spin_rpm) == 0
@@ -885,7 +898,7 @@ st.subheader("2) Results (starting from best)")
 st.caption("The table includes core design information required for production decisions.")
 st.caption(
     f"Manufacturability filter applied: estimated land width >= {MIN_LAND_WIDTH_MM:.2f} mm "
-    "(hex-packing approximation). If no candidate passes in a selected mode, the app safely falls back to the full mode set."
+    "and dimple count <= theoretical packing limit. Non-buildable designs are excluded."
 )
 
 simple_df = top_df.copy()
@@ -1032,148 +1045,154 @@ else:
         spin_rpm=spin_rpm,
         mode=mode,
     )
-    robust_top_df = robust_df.head(top_n).copy()
-    robust_best = robust_top_df.iloc[0]
+    if robust_df.empty:
+        st.warning(
+            "No manufacturable design found for robust analysis in this mode. "
+            "Try a different test type."
+        )
+    else:
+        robust_top_df = robust_df.head(top_n).copy()
+        robust_best = robust_top_df.iloc[0]
 
-    r1, r2, r3 = st.columns(3)
-    r1.metric("Global best robust score", f"{robust_best['robust_score']:.2f}")
-    r2.metric("Global average carry", f"{robust_best['mean_distance_m']:.2f} m")
-    r3.metric("Global minimum carry", f"{robust_best['min_distance_m']:.2f} m")
+        r1, r2, r3 = st.columns(3)
+        r1.metric("Global best robust score", f"{robust_best['robust_score']:.2f}")
+        r2.metric("Global average carry", f"{robust_best['mean_distance_m']:.2f} m")
+        r3.metric("Global minimum carry", f"{robust_best['min_distance_m']:.2f} m")
 
-    st.caption(
-        f"This table aggregates outcomes from {scenario_count} different speed/angle/spin combinations "
-        "around the selected baseline launch. It is used to choose safer candidates for production."
-    )
-
-    robust_show_df = robust_top_df.rename(
-        columns={
-            "rank": "Rank",
-            "robust_score": "Robust score",
-            "mean_score": "Average score",
-            "worst_score": "Worst score",
-            "score_std": "Score std dev",
-            "mean_distance_m": "Average carry (m)",
-            "min_distance_m": "Minimum carry (m)",
-            "nominal_distance_m": "Nominal carry (m)",
-            "nominal_avg_cd": "Nominal Cd",
-            "nominal_avg_cl": "Nominal Cl",
-            "nominal_avg_l_over_d": "Nominal L/D",
-            "depth_ratio_k_over_d": "Depth ratio (k / ball diameter)",
-            "occupancy": "Surface coverage ratio (0-1)",
-            "volume_ratio": "Dimple volume ratio (VDR)",
-            "dimple_count": "Total dimple count",
-            "dimple_diameter_mm": "Dimple diameter (mm)",
-            "estimated_land_width_mm": "Estimated land width (mm)",
-        }
-    )
-    robust_show_df["Dimple depth (mm)"] = (
-        robust_show_df["Depth ratio (k / ball diameter)"] * BALL_DIAMETER_MM
-    )
-    robust_show_df["Depth ratio (k / dimple diameter)"] = (
-        robust_show_df["Dimple depth (mm)"] / robust_show_df["Dimple diameter (mm)"]
-    )
-
-    st.dataframe(
-        robust_show_df.style.format(
-            {
-                "Robust score": "{:.2f}",
-                "Average score": "{:.2f}",
-                "Worst score": "{:.2f}",
-                "Score std dev": "{:.2f}",
-                "Average carry (m)": "{:.2f}",
-                "Minimum carry (m)": "{:.2f}",
-                "Nominal carry (m)": "{:.2f}",
-                "Nominal Cd": "{:.3f}",
-                "Nominal Cl": "{:.3f}",
-                "Nominal L/D": "{:.3f}",
-                "Depth ratio (k / ball diameter)": "{:.5f}",
-                "Depth ratio (k / dimple diameter)": "{:.5f}",
-                "Surface coverage ratio (0-1)": "{:.3f}",
-                "Dimple volume ratio (VDR)": "{:.4f}",
-                "Dimple diameter (mm)": "{:.2f}",
-                "Dimple depth (mm)": "{:.3f}",
-                "Estimated land width (mm)": "{:.3f}",
-            }
-        ),
-        width="stretch",
-        hide_index=True,
-    )
-
-    with st.expander("Global robust table columns: formulas and meanings"):
         st.caption(
-            "Scenario set uses 27 launch combinations around baseline: "
-            "speed = base * {0.92, 1.00, 1.08}, angle = base + {-1, 0, +1} deg, "
-            "spin = clip(base * {0.90, 1.00, 1.10}, 1500, 4500). "
-            "Each scenario score is rank_value(result, launch); in this table (spin-enabled), "
-            "that score is carry + 25*(L/D) - 30*Cd."
-        )
-        st.dataframe(
-            pd.DataFrame(build_robust_formula_rows()),
-            width="stretch",
-            hide_index=True,
+            f"This table aggregates outcomes from {scenario_count} different speed/angle/spin combinations "
+            "around the selected baseline launch. It is used to choose safer candidates for production."
         )
 
-    st.markdown("#### Cd-Re comparison for designs in the global robust table")
-    robust_compare_designs = [
-        DimpleDesign(
-            depth_ratio=float(row["depth_ratio_k_over_d"]),
-            occupancy=float(row["occupancy"]),
-            volume_ratio=float(row["volume_ratio"]),
-            dimple_count=int(row["dimple_count"]),
-            dimple_diameter_mm=float(row["dimple_diameter_mm"]),
+        robust_show_df = robust_top_df.rename(
+            columns={
+                "rank": "Rank",
+                "robust_score": "Robust score",
+                "mean_score": "Average score",
+                "worst_score": "Worst score",
+                "score_std": "Score std dev",
+                "mean_distance_m": "Average carry (m)",
+                "min_distance_m": "Minimum carry (m)",
+                "nominal_distance_m": "Nominal carry (m)",
+                "nominal_avg_cd": "Nominal Cd",
+                "nominal_avg_cl": "Nominal Cl",
+                "nominal_avg_l_over_d": "Nominal L/D",
+                "depth_ratio_k_over_d": "Depth ratio (k / ball diameter)",
+                "occupancy": "Surface coverage ratio (0-1)",
+                "volume_ratio": "Dimple volume ratio (VDR)",
+                "dimple_count": "Total dimple count",
+                "dimple_diameter_mm": "Dimple diameter (mm)",
+                "estimated_land_width_mm": "Estimated land width (mm)",
+            }
         )
-        for _, row in robust_top_df.iterrows()
-    ]
-    robust_compare_labels = [f"R{i}" for i in range(1, len(robust_compare_designs) + 1)]
-    robust_legend_df = build_design_legend(robust_compare_designs).copy()
-    robust_legend_df["Label"] = robust_compare_labels
+        robust_show_df["Dimple depth (mm)"] = (
+            robust_show_df["Depth ratio (k / ball diameter)"] * BALL_DIAMETER_MM
+        )
+        robust_show_df["Depth ratio (k / dimple diameter)"] = (
+            robust_show_df["Dimple depth (mm)"] / robust_show_df["Dimple diameter (mm)"]
+        )
 
-    robust_cd_re_comp_df = build_cd_re_comparison(
-        robust_compare_designs,
-        robust_compare_labels,
-        int(spin_rpm),
-        float(context_cfg["speed_min_mps"]),
-        float(context_cfg["speed_max_mps"]),
-    )
-    robust_cd_re_long = (
-        robust_cd_re_comp_df.reset_index()
-        .melt(id_vars="re", var_name="design", value_name="cd")
-        .dropna()
-    )
-    robust_cd_re_chart = (
-        alt.Chart(robust_cd_re_long)
-        .mark_line(point=True, strokeWidth=2)
-        .encode(
-            x=alt.X("re:Q", title="Reynolds number (Re)", axis=alt.Axis(format=".2e")),
-            y=alt.Y("cd:Q", title="Drag coefficient (Cd)"),
-            color=alt.Color("design:N", title="Robust design"),
-            tooltip=[
-                alt.Tooltip("design:N", title="Design"),
-                alt.Tooltip("re:Q", title="Re", format=".2e"),
-                alt.Tooltip("cd:Q", title="Cd", format=".4f"),
-            ],
-        )
-        .properties(height=320)
-        .interactive()
-    )
-    st.altair_chart(robust_cd_re_chart, use_container_width=True)
-    st.caption(
-        "R1, R2, ... labels represent the robust scoreboard ranking. "
-        "The lower the curve, the lower the Cd in that speed band."
-    )
-    with st.expander("Robust Cd-Re chart labels (R1, R2, ...)"):
         st.dataframe(
-            robust_legend_df.style.format(
+            robust_show_df.style.format(
                 {
-                    "k / ball diameter": "{:.5f}",
-                    "Surface coverage (%)": "{:.1f}",
-                    "VDR": "{:.4f}",
+                    "Robust score": "{:.2f}",
+                    "Average score": "{:.2f}",
+                    "Worst score": "{:.2f}",
+                    "Score std dev": "{:.2f}",
+                    "Average carry (m)": "{:.2f}",
+                    "Minimum carry (m)": "{:.2f}",
+                    "Nominal carry (m)": "{:.2f}",
+                    "Nominal Cd": "{:.3f}",
+                    "Nominal Cl": "{:.3f}",
+                    "Nominal L/D": "{:.3f}",
+                    "Depth ratio (k / ball diameter)": "{:.5f}",
+                    "Depth ratio (k / dimple diameter)": "{:.5f}",
+                    "Surface coverage ratio (0-1)": "{:.3f}",
+                    "Dimple volume ratio (VDR)": "{:.4f}",
                     "Dimple diameter (mm)": "{:.2f}",
+                    "Dimple depth (mm)": "{:.3f}",
+                    "Estimated land width (mm)": "{:.3f}",
                 }
             ),
             width="stretch",
             hide_index=True,
         )
+
+        with st.expander("Global robust table columns: formulas and meanings"):
+            st.caption(
+                "Scenario set uses 27 launch combinations around baseline: "
+                "speed = base * {0.92, 1.00, 1.08}, angle = base + {-1, 0, +1} deg, "
+                "spin = clip(base * {0.90, 1.00, 1.10}, 1500, 4500). "
+                "Each scenario score is rank_value(result, launch); in this table (spin-enabled), "
+                "that score is carry + 25*(L/D) - 30*Cd."
+            )
+            st.dataframe(
+                pd.DataFrame(build_robust_formula_rows()),
+                width="stretch",
+                hide_index=True,
+            )
+
+        st.markdown("#### Cd-Re comparison for designs in the global robust table")
+        robust_compare_designs = [
+            DimpleDesign(
+                depth_ratio=float(row["depth_ratio_k_over_d"]),
+                occupancy=float(row["occupancy"]),
+                volume_ratio=float(row["volume_ratio"]),
+                dimple_count=int(row["dimple_count"]),
+                dimple_diameter_mm=float(row["dimple_diameter_mm"]),
+            )
+            for _, row in robust_top_df.iterrows()
+        ]
+        robust_compare_labels = [f"R{i}" for i in range(1, len(robust_compare_designs) + 1)]
+        robust_legend_df = build_design_legend(robust_compare_designs).copy()
+        robust_legend_df["Label"] = robust_compare_labels
+
+        robust_cd_re_comp_df = build_cd_re_comparison(
+            robust_compare_designs,
+            robust_compare_labels,
+            int(spin_rpm),
+            float(context_cfg["speed_min_mps"]),
+            float(context_cfg["speed_max_mps"]),
+        )
+        robust_cd_re_long = (
+            robust_cd_re_comp_df.reset_index()
+            .melt(id_vars="re", var_name="design", value_name="cd")
+            .dropna()
+        )
+        robust_cd_re_chart = (
+            alt.Chart(robust_cd_re_long)
+            .mark_line(point=True, strokeWidth=2)
+            .encode(
+                x=alt.X("re:Q", title="Reynolds number (Re)", axis=alt.Axis(format=".2e")),
+                y=alt.Y("cd:Q", title="Drag coefficient (Cd)"),
+                color=alt.Color("design:N", title="Robust design"),
+                tooltip=[
+                    alt.Tooltip("design:N", title="Design"),
+                    alt.Tooltip("re:Q", title="Re", format=".2e"),
+                    alt.Tooltip("cd:Q", title="Cd", format=".4f"),
+                ],
+            )
+            .properties(height=320)
+            .interactive()
+        )
+        st.altair_chart(robust_cd_re_chart, use_container_width=True)
+        st.caption(
+            "R1, R2, ... labels represent the robust scoreboard ranking. "
+            "The lower the curve, the lower the Cd in that speed band."
+        )
+        with st.expander("Robust Cd-Re chart labels (R1, R2, ...)"):
+            st.dataframe(
+                robust_legend_df.style.format(
+                    {
+                        "k / ball diameter": "{:.5f}",
+                        "Surface coverage (%)": "{:.1f}",
+                        "VDR": "{:.4f}",
+                        "Dimple diameter (mm)": "{:.2f}",
+                    }
+                ),
+                width="stretch",
+                hide_index=True,
+            )
 
 
 st.subheader("3) Select a design and view its flight")
@@ -1324,4 +1343,183 @@ with st.expander("Technical details"):
 
 st.caption(
     "Note: This page is intended for decision support. Final product selection should be validated with experiments/CFD."
+)
+
+# ---------------------------------------------------------------
+# 4) Export for SolidWorks
+# ---------------------------------------------------------------
+st.subheader("4) Export for SolidWorks")
+st.markdown(
+    "Generate a **complete SolidWorks import pack** for the selected design.  \n"
+    "This uses Fibonacci (golden-angle) lattice to distribute dimple centers uniformly "
+    "across the sphere — much more efficient than latitude-ring / circular patterns."
+)
+
+import csv
+import io
+import json as _json
+from pathlib import Path as _Path
+
+export_depth_mm = selected_design.depth_ratio * BALL_DIAMETER_MM
+export_depth_over_dimple = export_depth_mm / selected_design.dimple_diameter_mm
+
+theo_max = theoretical_max_dimple_count(selected_design.dimple_diameter_mm)
+utilization_pct = (selected_design.dimple_count / max(theo_max, 1)) * 100.0
+
+e1, e2, e3 = st.columns(3)
+e1.metric("Dimple depth (mm)", f"{export_depth_mm:.4f}")
+e1.metric("Dimple diameter (mm)", f"{selected_design.dimple_diameter_mm:.2f}")
+e2.metric("Total dimple count", f"{selected_design.dimple_count}")
+e2.metric("Estimated land width (mm)", f"{estimate_hex_packing_land_width_mm(selected_design):.3f}")
+e3.metric("Theoretical max count", f"{theo_max}")
+e3.metric("Packing utilization", f"{utilization_pct:.1f}%")
+
+if selected_design.dimple_count > theo_max:
+    st.error(
+        f"This design requests **{selected_design.dimple_count}** dimples but the realistic maximum "
+        f"for **{selected_design.dimple_diameter_mm:.2f} mm** diameter on a **{BALL_DIAMETER_MM:.2f} mm** ball "
+        f"is approximately **{theo_max}**. This design is **physically non-buildable** regardless of placement method. "
+        "Please select a lower-ranked design or one with smaller dimple diameter."
+    )
+    st.stop()
+elif utilization_pct > 90:
+    st.warning(
+        f"Packing utilization is **{utilization_pct:.1f}%** (very tight). "
+        "Minor placement violations may occur. Verify in SolidWorks."
+    )
+
+with st.spinner("Generating optimized Fibonacci dimple placement (this may take a few seconds)..."):
+    sw_points = generate_fibonacci_dimple_centers(
+        selected_design.dimple_count,
+        dimple_diameter_mm=selected_design.dimple_diameter_mm,
+        optimize=True,
+    )
+    sw_validation = validate_dimple_placement(
+        sw_points, selected_design.dimple_diameter_mm
+    )
+
+if sw_validation["passed"]:
+    st.success(
+        f"Placement validation **PASSED**. "
+        f"No overlaps, no tight gaps. "
+        f"Min gap = {sw_validation['min_gap_mm']:.3f} mm "
+        f"(required >= {sw_validation['required_min_gap_mm']:.2f} mm). "
+        f"Checked {sw_validation['total_pairs']} pairs."
+    )
+elif sw_validation["buildable"]:
+    st.info(
+        f"Placement is **BUILDABLE** (no physical overlaps). "
+        f"Min gap = {sw_validation['min_gap_mm']:.3f} mm. "
+        f"{sw_validation['tight_gaps']} pair(s) have gap < {sw_validation['required_min_gap_mm']:.2f} mm "
+        f"but no dimple edges actually overlap. "
+        "This is acceptable for SolidWorks — tight land width only."
+    )
+else:
+    st.error(
+        f"Placement has **{sw_validation['overlaps']} overlap(s)** "
+        f"(dimple edges physically intersect). "
+        f"Min gap = {sw_validation['min_gap_mm']:.3f} mm. "
+        "This design cannot be built. Select a lower-ranked design."
+    )
+
+# --- CSV download ---
+csv_buf = io.StringIO()
+csv_writer = csv.writer(csv_buf)
+csv_writer.writerow(["index", "x_mm", "y_mm", "z_mm", "nx", "ny", "nz"])
+for idx_p, pt in enumerate(sw_points, start=1):
+    csv_writer.writerow([
+        idx_p,
+        round(pt["x"], 6), round(pt["y"], 6), round(pt["z"], 6),
+        round(pt["nx"], 6), round(pt["ny"], 6), round(pt["nz"], 6),
+    ])
+
+# --- JSON download ---
+json_data = {
+    "ball_diameter_mm": BALL_DIAMETER_MM,
+    "ball_radius_mm": BALL_DIAMETER_MM / 2.0,
+    "dimple_diameter_mm": selected_design.dimple_diameter_mm,
+    "dimple_depth_mm": round(export_depth_mm, 4),
+    "depth_ratio_k_over_ball_d": selected_design.depth_ratio,
+    "depth_ratio_k_over_dimple_d": round(export_depth_over_dimple, 6),
+    "dimple_count": selected_design.dimple_count,
+    "occupancy": selected_design.occupancy,
+    "volume_ratio": selected_design.volume_ratio,
+    "estimated_land_width_mm": round(estimate_hex_packing_land_width_mm(selected_design), 4),
+    "min_land_width_mm": MIN_LAND_WIDTH_MM,
+    "placement_method": "Fibonacci golden-angle lattice",
+    "validation": sw_validation,
+}
+
+# --- Macro download ---
+from golf_simulator import SW_MACRO_TEMPLATE
+macro_content = SW_MACRO_TEMPLATE.format(
+    ball_diameter_mm=BALL_DIAMETER_MM,
+    dimple_diameter_mm=selected_design.dimple_diameter_mm,
+    dimple_depth_mm=export_depth_mm,
+    dimple_count=selected_design.dimple_count,
+    csv_filename="dimple_centers.csv",
+).strip() + "\n"
+
+d1, d2, d3, d4 = st.columns(4)
+with d1:
+    st.download_button(
+        label="Download dimple_centers.csv",
+        data=csv_buf.getvalue(),
+        file_name="dimple_centers.csv",
+        mime="text/csv",
+    )
+with d2:
+    st.download_button(
+        label="Download design_params.json",
+        data=_json.dumps(json_data, indent=2, ensure_ascii=False),
+        file_name="design_params.json",
+        mime="application/json",
+    )
+with d3:
+    st.download_button(
+        label="Download SW macro (.bas)",
+        data=macro_content,
+        file_name="import_dimples.bas",
+        mime="text/plain",
+    )
+with d4:
+    st.download_button(
+        label="Download validation.json",
+        data=_json.dumps(sw_validation, indent=2, ensure_ascii=False),
+        file_name="validation.json",
+        mime="application/json",
+    )
+
+with st.expander("SolidWorks step-by-step instructions"):
+    st.markdown(f"""
+**Step 1 — Open base ball**
+- New Part, units MMGS.
+- Sketch semicircle radius **{BALL_DIAMETER_MM / 2:.3f} mm**, revolve 360° to create sphere.
+
+**Step 2 — Import dimple centers**
+- Download `dimple_centers.csv` above.
+- Place the CSV in the same folder as the part file.
+- Run `import_dimples.bas` macro (Tools > Macro > Run).
+- The macro creates 3D sketch points at each dimple center.
+
+**Step 3 — Create master dimple**
+- Create one spherical-cap cut:
+  - Mouth diameter = **{selected_design.dimple_diameter_mm:.2f} mm**
+  - Depth = **{export_depth_mm:.4f} mm**
+
+**Step 4 — Replicate to all points**
+- Use the imported center points to apply the master cut at each location.
+- Each cut should be oriented along the outward normal (nx, ny, nz from CSV).
+
+**Step 5 — Validate**
+- Confirm count = **{selected_design.dimple_count}**.
+- Run Interference Detection.
+- Verify minimum gap matches expected land width (**{estimate_hex_packing_land_width_mm(selected_design):.3f} mm**).
+
+**Important:** Do NOT change optimized values. If CAD fails, use the next feasible ranked design.
+""")
+
+st.caption(
+    "The Fibonacci lattice ensures near-uniform global coverage without polar clustering, "
+    "unlike latitude-ring or circular-pattern approaches."
 )

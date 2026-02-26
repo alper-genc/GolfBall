@@ -13,9 +13,10 @@ Run:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import cos, pi, sin, sqrt
+from math import acos, atan2, cos, floor, pi, sin, sqrt
 from pathlib import Path
 import csv
+import json
 from statistics import mean, pstdev
 
 
@@ -108,16 +109,6 @@ PAPER_VDR_MATRIX = {
     6.82e-3: [10.8e-3, 12.9e-3, 13.7e-3, 16.6e-3, 17.0e-3],
     9.09e-3: [14.5e-3, 17.3e-3, 18.3e-3, 22.3e-3, 22.7e-3],
 }
-
-# Reference setup used when one variable is scanned and others are fixed.
-REF_DESIGN = DimpleDesign(
-    depth_ratio=4.55e-3,
-    occupancy=0.812,
-    volume_ratio=0.0111,
-    dimple_count=314,
-    dimple_diameter_mm=3.5,
-)
-
 
 SEARCH_MODES: dict[str, SearchConfig] = {
     "paper_depth_only": SearchConfig(
@@ -261,11 +252,469 @@ def estimate_hex_packing_land_width_mm(design: DimpleDesign) -> float:
     return center_spacing_mm - design.dimple_diameter_mm
 
 
+def theoretical_max_dimple_count(
+    dimple_diameter_mm: float,
+    min_land_width_mm: float = MIN_LAND_WIDTH_MM,
+    ball_surface_area_mm2: float = BALL_SURFACE_AREA_MM2,
+    packing_efficiency: float = 0.87,
+) -> int:
+    """
+    Estimate max dimple count using hex-packing formula with a realistic
+    packing efficiency factor (~0.87 accounts for real lattice imperfections).
+    """
+    center_dist = dimple_diameter_mm + min_land_width_mm
+    area_per_hex = sqrt(3.0) / 2.0 * center_dist * center_dist
+    ideal_max = ball_surface_area_mm2 / area_per_hex
+    return int(ideal_max * packing_efficiency)
+
+
+def geometric_occupancy(dimple_count: int, dimple_diameter_mm: float) -> float:
+    """Actual surface coverage fraction from dimple count and diameter."""
+    return dimple_count * pi * (dimple_diameter_mm / 2.0) ** 2 / BALL_SURFACE_AREA_MM2
+
+
+def max_feasible_dimple_diameter(
+    dimple_count: int,
+    min_land_width_mm: float = MIN_LAND_WIDTH_MM,
+    ball_surface_area_mm2: float = BALL_SURFACE_AREA_MM2,
+    packing_efficiency: float = 0.87,
+) -> float:
+    """
+    Inverse of theoretical_max_dimple_count: given a target dimple count,
+    return the largest dimple diameter that physically fits on the ball.
+    """
+    if dimple_count <= 0:
+        return 0.0
+    area_per_hex = ball_surface_area_mm2 * packing_efficiency / dimple_count
+    center_dist = sqrt(2.0 * area_per_hex / sqrt(3.0))
+    return max(center_dist - min_land_width_mm, 0.1)
+
+
 def is_design_manufacturable(
     design: DimpleDesign,
     min_land_width_mm: float = MIN_LAND_WIDTH_MM,
 ) -> bool:
-    return estimate_hex_packing_land_width_mm(design) >= min_land_width_mm
+    if estimate_hex_packing_land_width_mm(design) < min_land_width_mm:
+        return False
+    max_n = theoretical_max_dimple_count(design.dimple_diameter_mm, min_land_width_mm)
+    return design.dimple_count <= max_n
+
+
+def _fibonacci_seed_points(n: int) -> list[list[float]]:
+    """Shifted Fibonacci lattice on the unit sphere (avoids polar clustering)."""
+    golden_angle = pi * (3.0 - sqrt(5.0))
+    pts: list[list[float]] = []
+    for i in range(n):
+        y = 1.0 - (2.0 * (i + 0.5)) / n
+        r = sqrt(max(1.0 - y * y, 0.0))
+        theta = golden_angle * i
+        pts.append([cos(theta) * r, y, sin(theta) * r])
+    return pts
+
+
+def _repulsion_optimize(
+    pts: list[list[float]],
+    min_center_dist: float,
+    iterations: int = 200,
+    step_scale: float = 0.03,
+) -> list[list[float]]:
+    """
+    Iteratively push points apart on the unit sphere using Coulomb-like
+    repulsion. All pair interactions (not just close ones) contribute, but
+    close pairs get stronger forces. After force accumulation, each point
+    is moved along the tangent plane and re-projected onto the sphere.
+    """
+    n = len(pts)
+
+    for _iteration in range(iterations):
+        forces = [[0.0, 0.0, 0.0] for _ in range(n)]
+        max_force = 0.0
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                dx = pts[i][0] - pts[j][0]
+                dy = pts[i][1] - pts[j][1]
+                dz = pts[i][2] - pts[j][2]
+                dist_sq = dx * dx + dy * dy + dz * dz
+                if dist_sq < 1e-20:
+                    dist_sq = 1e-20
+                inv_dist_sq = 1.0 / dist_sq
+                inv_dist = sqrt(inv_dist_sq)
+
+                fx = inv_dist_sq * inv_dist * dx
+                fy = inv_dist_sq * inv_dist * dy
+                fz = inv_dist_sq * inv_dist * dz
+
+                forces[i][0] += fx
+                forces[i][1] += fy
+                forces[i][2] += fz
+                forces[j][0] -= fx
+                forces[j][1] -= fy
+                forces[j][2] -= fz
+
+        for i in range(n):
+            px, py, pz = pts[i]
+            dot = forces[i][0] * px + forces[i][1] * py + forces[i][2] * pz
+            forces[i][0] -= dot * px
+            forces[i][1] -= dot * py
+            forces[i][2] -= dot * pz
+
+            fm = sqrt(
+                forces[i][0] ** 2 + forces[i][1] ** 2 + forces[i][2] ** 2
+            )
+            if fm > max_force:
+                max_force = fm
+
+        if max_force < 1e-12:
+            break
+
+        step = step_scale / max_force
+        for i in range(n):
+            pts[i][0] += step * forces[i][0]
+            pts[i][1] += step * forces[i][1]
+            pts[i][2] += step * forces[i][2]
+
+            mag = sqrt(pts[i][0] ** 2 + pts[i][1] ** 2 + pts[i][2] ** 2)
+            if mag > 1e-10:
+                pts[i][0] /= mag
+                pts[i][1] /= mag
+                pts[i][2] /= mag
+
+    return pts
+
+
+def _local_push_apart(
+    pts: list[list[float]],
+    min_center_dist: float,
+    iterations: int = 500,
+) -> list[list[float]]:
+    """
+    After global Coulomb optimization, specifically push apart any pairs
+    that are still closer than min_center_dist. Faster convergence for
+    the last-mile overlap fixes.
+    """
+    n = len(pts)
+    for _it in range(iterations):
+        moved = False
+        for i in range(n):
+            for j in range(i + 1, n):
+                dx = pts[i][0] - pts[j][0]
+                dy = pts[i][1] - pts[j][1]
+                dz = pts[i][2] - pts[j][2]
+                dist = sqrt(dx * dx + dy * dy + dz * dz)
+                if dist >= min_center_dist:
+                    continue
+                if dist < 1e-10:
+                    dist = 1e-10
+                    dx, dy, dz = 1e-5, 0.0, 0.0
+
+                overlap = (min_center_dist - dist) * 0.52
+                ux, uy, uz = dx / dist, dy / dist, dz / dist
+
+                pts[i][0] += overlap * ux
+                pts[i][1] += overlap * uy
+                pts[i][2] += overlap * uz
+                pts[j][0] -= overlap * ux
+                pts[j][1] -= overlap * uy
+                pts[j][2] -= overlap * uz
+
+                for k in (i, j):
+                    mag = sqrt(pts[k][0] ** 2 + pts[k][1] ** 2 + pts[k][2] ** 2)
+                    if mag > 1e-10:
+                        pts[k][0] /= mag
+                        pts[k][1] /= mag
+                        pts[k][2] /= mag
+
+                moved = True
+
+        if not moved:
+            break
+
+    return pts
+
+
+def generate_fibonacci_dimple_centers(
+    dimple_count: int,
+    ball_radius_mm: float = BALL_DIAMETER_MM / 2.0,
+    dimple_diameter_mm: float | None = None,
+    optimize: bool = True,
+) -> list[dict[str, float]]:
+    """
+    Generate near-uniform dimple center points on a sphere.
+
+    1. Start with shifted Fibonacci (golden-angle) lattice.
+    2. Optionally refine with electrostatic repulsion optimization
+       to maximize minimum nearest-neighbor distance.
+    3. Scale to actual ball radius and return positions + normals.
+    """
+    unit_pts = _fibonacci_seed_points(dimple_count)
+
+    if optimize and dimple_diameter_mm is not None and dimple_count > 1:
+        min_center_dist_unit = (dimple_diameter_mm + MIN_LAND_WIDTH_MM) / ball_radius_mm
+        unit_pts = _repulsion_optimize(unit_pts, min_center_dist_unit)
+        unit_pts = _local_push_apart(unit_pts, min_center_dist_unit)
+
+    points: list[dict[str, float]] = []
+    for p in unit_pts:
+        nx, ny, nz = p[0], p[1], p[2]
+        points.append({
+            "x": nx * ball_radius_mm,
+            "y": ny * ball_radius_mm,
+            "z": nz * ball_radius_mm,
+            "nx": nx,
+            "ny": ny,
+            "nz": nz,
+        })
+
+    return points
+
+
+def validate_dimple_placement(
+    points: list[dict[str, float]],
+    dimple_diameter_mm: float,
+    min_land_width_mm: float = MIN_LAND_WIDTH_MM,
+) -> dict[str, object]:
+    """
+    Check all generated dimple center pairs for spacing.
+    Distinguishes between:
+      - overlaps: center distance < dimple diameter (physical impossibility)
+      - tight gaps: dimple diameter <= center distance < dimple diameter + min land width
+    """
+    n = len(points)
+    min_gap_found = float("inf")
+    overlaps = 0
+    tight_gaps = 0
+    min_center_dist = dimple_diameter_mm + min_land_width_mm
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            dx = points[i]["x"] - points[j]["x"]
+            dy = points[i]["y"] - points[j]["y"]
+            dz = points[i]["z"] - points[j]["z"]
+            dist = sqrt(dx * dx + dy * dy + dz * dz)
+            gap = dist - dimple_diameter_mm
+            if gap < min_gap_found:
+                min_gap_found = gap
+            if dist < dimple_diameter_mm:
+                overlaps += 1
+            elif dist < min_center_dist:
+                tight_gaps += 1
+
+    no_overlap = overlaps == 0
+    return {
+        "passed": no_overlap and tight_gaps == 0,
+        "buildable": no_overlap,
+        "total_pairs": n * (n - 1) // 2,
+        "overlaps": overlaps,
+        "tight_gaps": tight_gaps,
+        "min_gap_mm": round(min_gap_found, 4),
+        "required_min_gap_mm": min_land_width_mm,
+    }
+
+
+def export_solidworks_csv(path: Path, points: list[dict[str, float]]) -> None:
+    """Write dimple centers to CSV for SolidWorks import."""
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["index", "x_mm", "y_mm", "z_mm", "nx", "ny", "nz"])
+        for idx, p in enumerate(points, start=1):
+            writer.writerow([
+                idx,
+                round(p["x"], 6),
+                round(p["y"], 6),
+                round(p["z"], 6),
+                round(p["nx"], 6),
+                round(p["ny"], 6),
+                round(p["nz"], 6),
+            ])
+
+
+def export_design_json(path: Path, design: DimpleDesign) -> None:
+    """Write design parameters to JSON for reference."""
+    depth_mm = design.depth_ratio * BALL_DIAMETER_MM
+    data = {
+        "ball_diameter_mm": BALL_DIAMETER_MM,
+        "ball_radius_mm": BALL_DIAMETER_MM / 2.0,
+        "dimple_diameter_mm": design.dimple_diameter_mm,
+        "dimple_depth_mm": round(depth_mm, 4),
+        "depth_ratio_k_over_ball_d": design.depth_ratio,
+        "depth_ratio_k_over_dimple_d": round(depth_mm / design.dimple_diameter_mm, 6),
+        "dimple_count": design.dimple_count,
+        "occupancy": design.occupancy,
+        "volume_ratio": design.volume_ratio,
+        "estimated_land_width_mm": round(
+            estimate_hex_packing_land_width_mm(design), 4
+        ),
+        "min_land_width_mm": MIN_LAND_WIDTH_MM,
+    }
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+SW_MACRO_TEMPLATE = r'''
+' ============================================================
+' SolidWorks VBA Macro: Import dimple centers and cut dimples
+' Generated by Golf Ball Simulator
+' ============================================================
+' USAGE:
+'   1. Open the base ball part (sphere, D={ball_diameter_mm:.2f} mm).
+'   2. Tools > Macro > Run, select this .bas file.
+'   3. The macro reads "{csv_filename}" from the same folder,
+'      creates reference points, and cuts spherical-cap dimples.
+'
+' PARAMETERS (from optimization):
+'   Ball diameter  = {ball_diameter_mm:.2f} mm
+'   Dimple diameter = {dimple_diameter_mm:.2f} mm
+'   Dimple depth   = {dimple_depth_mm:.4f} mm
+'   Dimple count   = {dimple_count}
+' ============================================================
+
+Option Explicit
+
+Sub Main()
+
+    Dim swApp As SldWorks.SldWorks
+    Dim swModel As SldWorks.ModelDoc2
+    Dim swPart As SldWorks.PartDoc
+    Dim swSkMgr As SldWorks.SketchManager
+    Dim swFeatMgr As SldWorks.FeatureManager
+
+    Set swApp = Application.SldWorks
+    Set swModel = swApp.ActiveDoc
+
+    If swModel Is Nothing Then
+        MsgBox "Please open the golf ball part first.", vbExclamation
+        Exit Sub
+    End If
+
+    Set swPart = swModel
+    Set swSkMgr = swModel.SketchManager
+    Set swFeatMgr = swModel.FeatureManager
+
+    ' --- Configuration ---
+    Dim csvPath As String
+    csvPath = swModel.GetPathName()
+    csvPath = Left(csvPath, InStrRev(csvPath, "\")) & "{csv_filename}"
+
+    Dim dimpleDiameterM As Double
+    dimpleDiameterM = {dimple_diameter_mm:.6f} / 1000#   ' convert mm to meters
+
+    Dim dimpleDepthM As Double
+    dimpleDepthM = {dimple_depth_mm:.6f} / 1000#          ' convert mm to meters
+
+    Dim dimpleRadiusM As Double
+    dimpleRadiusM = dimpleDiameterM / 2#
+
+    Dim ballRadiusM As Double
+    ballRadiusM = {ball_diameter_mm:.6f} / 2# / 1000#
+
+    ' --- Read CSV ---
+    Dim fso As Object
+    Set fso = CreateObject("Scripting.FileSystemObject")
+
+    If Not fso.FileExists(csvPath) Then
+        MsgBox "CSV not found: " & csvPath, vbExclamation
+        Exit Sub
+    End If
+
+    Dim ts As Object
+    Set ts = fso.OpenTextFile(csvPath, 1)
+    ts.SkipLine  ' header
+
+    Dim lineData As String
+    Dim parts() As String
+    Dim cx As Double, cy As Double, cz As Double
+    Dim nx As Double, ny As Double, nz As Double
+    Dim count As Long
+    count = 0
+
+    Do While Not ts.AtEndOfStream
+        lineData = ts.ReadLine
+        parts = Split(lineData, ",")
+        If UBound(parts) >= 6 Then
+            cx = CDbl(parts(1)) / 1000#
+            cy = CDbl(parts(2)) / 1000#
+            cz = CDbl(parts(3)) / 1000#
+            nx = CDbl(parts(4))
+            ny = CDbl(parts(5))
+            nz = CDbl(parts(6))
+
+            ' Create a 3D sketch point at dimple center
+            swModel.Insert3DSketch
+            swSkMgr.CreatePoint cx, cy, cz
+            swModel.InsertSketch2 True
+
+            count = count + 1
+        End If
+    Loop
+    ts.Close
+
+    MsgBox "Done. Created " & count & " dimple center points." & vbCrLf & _
+           "Next step: select each point and apply a spherical-cap cut " & _
+           "(diameter=" & Format(dimpleDiameterM * 1000, "0.00") & " mm, " & _
+           "depth=" & Format(dimpleDepthM * 1000, "0.000") & " mm).", vbInformation
+
+End Sub
+'''
+
+
+def export_solidworks_macro(
+    path: Path, design: DimpleDesign, csv_filename: str = "dimple_centers.csv"
+) -> None:
+    """Write a SolidWorks VBA macro template."""
+    depth_mm = design.depth_ratio * BALL_DIAMETER_MM
+    content = SW_MACRO_TEMPLATE.format(
+        ball_diameter_mm=BALL_DIAMETER_MM,
+        dimple_diameter_mm=design.dimple_diameter_mm,
+        dimple_depth_mm=depth_mm,
+        dimple_count=design.dimple_count,
+        csv_filename=csv_filename,
+    )
+    path.write_text(content.strip() + "\n", encoding="utf-8")
+
+
+def export_solidworks_pack(
+    output_dir: Path, design: DimpleDesign
+) -> dict[str, str]:
+    """
+    Generate a complete SolidWorks import pack:
+      - dimple_centers.csv  (x,y,z,nx,ny,nz for each dimple)
+      - design_params.json  (all key parameters)
+      - import_dimples.bas  (VBA macro template)
+      - validation.json     (placement check results)
+    Returns dict of filename -> description.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    points = generate_fibonacci_dimple_centers(
+        design.dimple_count,
+        dimple_diameter_mm=design.dimple_diameter_mm,
+        optimize=True,
+    )
+    validation = validate_dimple_placement(
+        points, design.dimple_diameter_mm
+    )
+
+    csv_path = output_dir / "dimple_centers.csv"
+    json_path = output_dir / "design_params.json"
+    macro_path = output_dir / "import_dimples.bas"
+    valid_path = output_dir / "validation.json"
+
+    export_solidworks_csv(csv_path, points)
+    export_design_json(json_path, design)
+    export_solidworks_macro(macro_path, design, csv_filename="dimple_centers.csv")
+    valid_path.write_text(
+        json.dumps(validation, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    return {
+        "dimple_centers.csv": f"{design.dimple_count} dimple center coordinates (x,y,z + normals)",
+        "design_params.json": "All design parameters for reference",
+        "import_dimples.bas": "SolidWorks VBA macro template for importing points",
+        "validation.json": (
+            f"Placement: {'PASSED' if validation['passed'] else 'BUILDABLE (tight gaps)' if validation['buildable'] else 'FAILED (overlaps)'}, "
+            f"min gap={validation['min_gap_mm']} mm, overlaps={validation['overlaps']}, tight={validation['tight_gaps']}"
+        ),
+    }
 
 
 def apply_manufacturability_filter(
@@ -273,11 +722,10 @@ def apply_manufacturability_filter(
     min_land_width_mm: float = MIN_LAND_WIDTH_MM,
 ) -> list[DimpleDesign]:
     """
-    Keep only manufacturable candidates. If a given mode has zero passing designs,
-    fall back to the original set so UI flows never crash.
+    Keep only manufacturable candidates.
+    Returns an empty list when no design is physically buildable.
     """
-    filtered = [d for d in designs if is_design_manufacturable(d, min_land_width_mm)]
-    return filtered if filtered else designs
+    return [d for d in designs if is_design_manufacturable(d, min_land_width_mm)]
 
 
 def model_cd_cl(speed: float, spin_rpm: float, design: DimpleDesign) -> tuple[float, float]:
@@ -330,7 +778,7 @@ def model_cd_cl(speed: float, spin_rpm: float, design: DimpleDesign) -> tuple[fl
     # Lift model:
     # Wind tunnel non-spinning condition should yield near-zero lift.
     # Geometry terms modulate spin-generated lift instead of creating lift at zero spin.
-    cl_spin = 0.58 * sp
+    cl_spin = 1.6 * sp
     cl_geom_factor = (
         1.0
         + 0.30 * (design.occupancy - 0.75)
@@ -339,7 +787,7 @@ def model_cd_cl(speed: float, spin_rpm: float, design: DimpleDesign) -> tuple[fl
     )
     cl_geom_factor = clamp(cl_geom_factor, 0.55, 1.45)
     cl = cl_spin * cl_geom_factor
-    cl = clamp(cl, 0.0, 0.32)
+    cl = clamp(cl, 0.0, 0.40)
 
     return cd, cl
 
@@ -541,37 +989,46 @@ def build_design_space(mode: str = "paper_literature_grid") -> list[DimpleDesign
     if mode not in SEARCH_MODES:
         raise ValueError(f"Unknown mode: {mode}")
 
-    ref = REF_DESIGN
-
     if mode == "paper_depth_only":
-        # Fix occupancy family to O=81.2% (ND=476, Cmean/d=81.8e-3), vary only depth.
         grp = next(g for g in PAPER_OCCUPANCY_GROUPS if abs(g["occupancy"] - 0.812) < 1e-9)
         i = PAPER_OCCUPANCY_GROUPS.index(grp)
         dimple_diam_mm = grp["cm_over_d"] * BALL_DIAMETER * 1000.0
+        n = grp["dimple_count"]
+        occ = grp["occupancy"]
+        if n > theoretical_max_dimple_count(dimple_diam_mm):
+            dimple_diam_mm = floor(max_feasible_dimple_diameter(n) * 100) / 100
+            occ = geometric_occupancy(n, dimple_diam_mm)
         return [
             DimpleDesign(
                 depth_ratio=dr,
-                occupancy=grp["occupancy"],
+                occupancy=occ,
                 volume_ratio=PAPER_VDR_MATRIX[dr][i],
-                dimple_count=grp["dimple_count"],
+                dimple_count=n,
                 dimple_diameter_mm=dimple_diam_mm,
             )
             for dr in PAPER_DEPTH_RATIOS
         ]
 
     if mode == "paper_occupancy_only":
-        # Fix depth to D/d=4.55e-3, vary occupancy family.
         depth_fixed = 4.55e-3
-        return [
-            DimpleDesign(
-                depth_ratio=depth_fixed,
-                occupancy=grp["occupancy"],
-                volume_ratio=PAPER_VDR_MATRIX[depth_fixed][i],
-                dimple_count=grp["dimple_count"],
-                dimple_diameter_mm=grp["cm_over_d"] * BALL_DIAMETER * 1000.0,
+        designs_occ = []
+        for i, grp in enumerate(PAPER_OCCUPANCY_GROUPS):
+            diam = grp["cm_over_d"] * BALL_DIAMETER * 1000.0
+            n = grp["dimple_count"]
+            occ = grp["occupancy"]
+            if n > theoretical_max_dimple_count(diam):
+                diam = floor(max_feasible_dimple_diameter(n) * 100) / 100
+                occ = geometric_occupancy(n, diam)
+            designs_occ.append(
+                DimpleDesign(
+                    depth_ratio=depth_fixed,
+                    occupancy=occ,
+                    volume_ratio=PAPER_VDR_MATRIX[depth_fixed][i],
+                    dimple_count=n,
+                    dimple_diameter_mm=diam,
+                )
             )
-            for i, grp in enumerate(PAPER_OCCUPANCY_GROUPS)
-        ]
+        return designs_occ
 
     if mode == "paper_volume_only":
         # VDR trend is assessed from the full literature set.
@@ -582,16 +1039,27 @@ def build_design_space(mode: str = "paper_literature_grid") -> list[DimpleDesign
     # Build 50 deterministic, literature-aligned designs:
     # - original measured ranges are preserved
     # - extra dummy points are interpolation-based (never random)
+    # - if interpolated (N, diameter) exceeds the physical packing limit,
+    #   the diameter is shrunk to the largest feasible value so that
+    #   high-occupancy designs remain in the candidate pool.
     designs = []
     for dr in PAPER_GRID_DEPTH_LEVELS:
         for occupancy in PAPER_GRID_OCCUPANCY_LEVELS:
             cm_over_d = literature_group_value_at_occupancy(occupancy, "cm_over_d")
             mean_dimple_diam_mm = cm_over_d * BALL_DIAMETER * 1000.0
             dimple_count = int(round(literature_group_value_at_occupancy(occupancy, "dimple_count")))
+
+            actual_occ = occupancy
+            if dimple_count > theoretical_max_dimple_count(mean_dimple_diam_mm):
+                mean_dimple_diam_mm = floor(
+                    max_feasible_dimple_diameter(dimple_count) * 100
+                ) / 100
+                actual_occ = geometric_occupancy(dimple_count, mean_dimple_diam_mm)
+
             designs.append(
                 DimpleDesign(
                     depth_ratio=dr,
-                    occupancy=occupancy,
+                    occupancy=actual_occ,
                     volume_ratio=literature_vdr_at(dr, occupancy),
                     dimple_count=dimple_count,
                     dimple_diameter_mm=mean_dimple_diam_mm,
